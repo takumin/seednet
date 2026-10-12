@@ -20,7 +20,14 @@ cp rootfs/boot/initrd.seednet.img initrd.img
 chmod 644 initrd.img
 
 if [ -e rootfs/.e2e-labels ]; then
-	mv rootfs/.e2e-labels labels
+	# Only the paths that the export has: one that the build bind-mounts, such as etc/resolv.conf,
+	# may be listed but left out.
+	while read -r label path; do
+		if [ -e "rootfs$path" ] || [ -L "rootfs$path" ]; then
+			echo "$label $path"
+		fi
+	done < rootfs/.e2e-labels > labels
+	rm rootfs/.e2e-labels
 	awk '{ printf "ea_set \"%s\" security.selinux %s\n", $2, $1 }' labels > debugfs.cmd
 	awk '{ p = $2; sub("^/", "", p); if (p == "") p = "/"; printf "%s x security.selinux=%s\n", p, $1 }' \
 		labels > pseudo
