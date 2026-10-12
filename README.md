@@ -156,8 +156,8 @@ that implies it, such as `root=live:https://...`, or with `seednet.url=`.
 - Without `seednet.url=`, it runs `seednet apply --stage initrd --takeover` before systemd-networkd
   starts, and renames the interfaces.
 - With `seednet.url=`, it fetches the config over the DHCP network of dracut, then renames the
-  interfaces and restarts systemd-networkd or NetworkManager with the config, before the initqueue
-  reaches for the rootfs.
+  interfaces and restarts systemd-networkd or NetworkManager with the config, and waits for the
+  network, before the initqueue reaches for the rootfs.
 
 `seednet.url=` may be on the kernel command line or in the initrd, as `dracut --kernel-cmdline`
 puts it there.

@@ -42,6 +42,9 @@ if [ "${1:-}" = url ]; then
 		networkd)
 			# networkctl needs D-Bus, which the initrd lacks, and a restart reads the new files too.
 			systemctl restart systemd-networkd.service
+			# The initqueue reaches for the rootfs once this is done, so wait for the network, as
+			# the wait-online of the dracut module waits for the network of dracut.
+			/usr/lib/systemd/systemd-networkd-wait-online --timeout=60
 			;;
 		network-manager)
 			# The initqueue reaches for the rootfs once this is done, so wait for the network.
