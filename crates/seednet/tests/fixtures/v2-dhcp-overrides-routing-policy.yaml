@@ -1,0 +1,18 @@
+---
+version: 2
+ethernets:
+  eth0:
+    dhcp4: true
+    dhcp6: true
+    dhcp4-overrides: &overrides
+      use-routes: false
+      route-metric: 200
+      send-hostname: false
+      hostname: h1
+    dhcp6-overrides: *overrides
+    ipv6-privacy: true
+    ipv6-mtu: 1400
+    addresses: [192.0.2.10/24, '2001:db8::10/64']
+    routing-policy:
+    - {from: 192.0.2.10, table: 100, priority: 10, mark: 32, type-of-service: 16}
+    - {to: '2001:db8:1::/48', table: 101, priority: 11}

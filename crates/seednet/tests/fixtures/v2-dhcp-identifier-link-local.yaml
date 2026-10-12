@@ -1,0 +1,22 @@
+---
+version: 2
+ethernets:
+  ether-1g:
+    match:
+      macaddress: dc:a6:32:f8:9a:1a
+    set-name: ether-1g
+    dhcp4: true
+    dhcp6: true
+    accept-ra: true
+    ipv6-privacy: true
+    link-local:
+    - ipv4
+    - ipv6
+    dhcp-identifier: duid
+  ether-2:
+    match:
+      macaddress: dc:a6:32:f8:9a:1b
+    addresses:
+    - 2001:db8::10/64
+    link-local:
+    - ipv4

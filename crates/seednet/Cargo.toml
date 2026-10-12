@@ -1,0 +1,18 @@
+[package]
+name = "seednet"
+description = "Converts the network-config of the cloud-init NoCloud datasource to systemd-networkd or NetworkManager files"
+readme = "../../README.md"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+homepage.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+sha1.workspace = true
+yaml_serde.workspace = true

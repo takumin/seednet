@@ -1,0 +1,7 @@
+---
+version: 2
+ethernets:
+  lan:
+    match: {macaddress: '52:54:00:12:34:56'}
+    macaddress: '02:00:00:AA:BB:CC'
+    dhcp4: true

@@ -1,0 +1,41 @@
+---
+version: 1
+config:
+- type: loopback
+  name: lo
+- type: physical
+  name: eth0
+  mtu: 1500
+  optional: true
+  subnets:
+  - type: dhcp
+    metric: 200
+    dns_nameservers: [192.0.2.53]
+  - type: ipv6_slaac
+    metric: 200
+  - type: static
+    address: 198.51.100.10
+    prefix: 24
+    gateway: 192.0.2.1
+    metric: 50
+    mtu: 9000
+    routes:
+    - {network: 10.0.0.0, prefix: 8, gateway: 198.51.100.254}
+    - {network: 10.1.0.0, prefix: 16, gateway: 198.51.100.254, metric: 10}
+  - type: static6
+    address: 2001:db8::10/64
+    mtu: 1400
+- type: physical
+  name: eth1
+  subnets:
+  - {type: static, address: 203.0.113.10/24}
+- type: physical
+  name: eth2
+  subnets:
+  - {type: static, address: 203.0.113.20/24, dns_search: [own.example]}
+- type: nameserver
+  address: [203.0.113.53]
+  search: [global.example]
+- type: nameserver
+  interface: eth0
+  address: 192.0.2.54

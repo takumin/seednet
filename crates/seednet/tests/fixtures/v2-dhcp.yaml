@@ -1,0 +1,15 @@
+---
+version: 2
+ethernets:
+  enp1s0:
+    dhcp4: on
+    dhcp6: "true"
+    accept-ra: false
+    link-local: [ipv6]
+  lan:
+    match:
+      name: "en*"
+      driver: virtio_net
+    addresses: [192.0.2.10/24]
+    gateway4: 192.0.2.1
+    gateway6: 2001:db8::1

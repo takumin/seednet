@@ -1,0 +1,18 @@
+---
+version: 2
+ethernets:
+  eth0:
+    optional: true
+    dhcp4: true
+    dhcp6: true
+    dhcp4-overrides: &overrides
+      use-dns: false
+      use-ntp: true
+      use-hostname: false
+      use-mtu: false
+      use-domains: route
+    dhcp6-overrides: *overrides
+    addresses:
+    - 192.0.2.10/24: {label: eth0-a, lifetime: 0}
+    routing-policy:
+    - {from: 198.51.100.0/24, table: 102}

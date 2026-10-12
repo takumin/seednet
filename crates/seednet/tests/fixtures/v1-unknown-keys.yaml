@@ -1,0 +1,19 @@
+---
+version: 1
+config:
+- type: physical
+  name: eth0
+  wakeonlan: true
+  subnets:
+  - type: static
+    address: 192.0.2.10/24
+    control: auto
+    routes:
+    - {network: 198.51.100.0, prefix: 24, gateway: 192.0.2.1, mtu: 1400}
+- type: nameserver
+  address: 192.0.2.53
+  options: rotate
+- type: route
+  destination: 203.0.113.0/24
+  gateway: 192.0.2.1
+  table: 100

@@ -1,0 +1,21 @@
+---
+network:
+  version: 1
+  config:
+  - type: physical
+    name: ens3
+    mac_address: 52:54:00:AA:BB:CC
+    subnets:
+    - type: dhcp
+    - type: ipv6_slaac
+    - type: static
+      address: 192.0.2.5/28
+      dns_nameservers: 192.0.2.53 192.0.2.54
+      dns_search: [a.example]
+      routes:
+      - network: 0.0.0.0
+        netmask: 0.0.0.0
+        gateway: 192.0.2.1
+      - network: 10.0.0.0
+        prefix: 8
+        gateway: 192.0.2.2

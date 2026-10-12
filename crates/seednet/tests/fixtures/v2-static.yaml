@@ -1,0 +1,29 @@
+---
+network:
+  version: 2
+  ethernets:
+    id0:
+      match:
+        macaddress: "52:54:00:12:34:56"
+      set-name: eth0
+      addresses:
+      - 203.0.113.10/24
+      - "2001:db8::10/64":
+          label: eth0:1
+      routes:
+      - to: default
+        via: 203.0.113.1
+      - to: "::/0"
+        via: fe80::1
+        on-link: true
+      - to: 198.51.100.0/24
+        via: 203.0.113.254
+        metric: 100
+        table: 200
+      nameservers:
+        addresses: [1.1.1.1, '2606:4700:4700::1111']
+        search: [example.com]
+      mtu: 9000
+      optional: yes
+  bridges:
+    br0: {}

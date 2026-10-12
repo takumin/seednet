@@ -1,0 +1,13 @@
+---
+version: 2
+ethernets:
+  ether-lan:
+    match:
+      name: enp1s0
+    set-name: ether-lan
+    dhcp4: true
+  uplink:
+    match:
+      name: enx*
+    set-name: uplink
+    dhcp4: true

@@ -1,0 +1,44 @@
+---
+network:
+  version: 2
+  ethernets:
+    eth0:
+      match:
+        macaddress: "52:54:00:00:00:01"
+      set-name: eth0
+    eth1:
+      match:
+        macaddress: "52:54:00:00:00:02"
+      set-name: eth1
+    eth2:
+      match:
+        macaddress: "52:54:00:00:00:03"
+      set-name: eth2
+      mtu: 9000
+  bonds:
+    bond0:
+      interfaces: [eth0, eth1]
+      parameters:
+        mode: active-backup
+        mii-monitor-interval: 100
+        up-delay: 1s
+        primary: eth0
+      addresses: [192.0.2.10/24]
+      routes: [{to: default, via: 192.0.2.1}]
+      nameservers:
+        addresses: [192.0.2.53]
+        search: [example.com]
+  bridges:
+    br0:
+      interfaces: [vlan10]
+      parameters:
+        stp: false
+        forward-delay: 4
+        priority: 100
+        path-cost:
+          vlan10: 50
+      dhcp4: true
+  vlans:
+    vlan10:
+      id: 10
+      link: eth2

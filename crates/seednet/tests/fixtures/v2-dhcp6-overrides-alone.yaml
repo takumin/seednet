@@ -1,0 +1,6 @@
+---
+version: 2
+ethernets:
+  eth0:
+    dhcp6: true
+    dhcp6-overrides: {send-hostname: false, use-routes: false, use-mtu: false, route-metric: 300}

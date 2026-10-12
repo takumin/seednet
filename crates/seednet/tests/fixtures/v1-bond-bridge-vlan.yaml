@@ -1,0 +1,41 @@
+---
+version: 1
+config:
+- type: physical
+  name: eth0
+  mac_address: "52:54:00:00:00:01"
+- type: physical
+  name: eth1
+  mac_address: "52:54:00:00:00:02"
+- type: physical
+  name: eth2
+  mac_address: "52:54:00:00:00:03"
+  mtu: 9000
+- type: bond
+  name: bond0
+  bond_interfaces: [eth0, eth1]
+  params:
+    bond-mode: active-backup
+    bond_miimon: 100
+    bond-updelay: 1000
+    bond-primary: eth0
+  subnets:
+  - type: static
+    address: 192.0.2.10/24
+    gateway: 192.0.2.1
+    dns_nameservers: [192.0.2.53]
+    dns_search: [example.com]
+- type: bridge
+  name: br0
+  bridge_interfaces: [vlan10]
+  params:
+    bridge_stp: "off"
+    bridge_fd: 4
+    bridge_bridgeprio: 100
+    bridge_pathcost: ["vlan10 50"]
+  subnets:
+  - type: dhcp
+- type: vlan
+  name: vlan10
+  vlan_link: eth2
+  vlan_id: 10
