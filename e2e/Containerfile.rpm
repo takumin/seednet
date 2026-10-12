@@ -38,7 +38,9 @@ RUN if [ "$BACKEND" = nm ]; then \
     fi \
   && if [ -e /usr/lib/systemd/system/systemd-resolved.service ]; then systemctl enable systemd-resolved; fi
 
-COPY target/x86_64-unknown-linux-musl/release/seednet /usr/bin/seednet
+# The release build of seednet for the architecture of the host.
+ARG SEEDNET=target/x86_64-unknown-linux-musl/release/seednet
+COPY ${SEEDNET} /usr/bin/seednet
 COPY contrib/dracut/95seednet /usr/lib/dracut/modules.d/95seednet
 COPY contrib/systemd/seednet-rootfs /usr/libexec/seednet-rootfs
 COPY contrib/systemd/seednet.service /usr/lib/systemd/system/seednet.service

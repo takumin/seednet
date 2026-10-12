@@ -223,13 +223,14 @@ else
 fi
 # The getty on the console hangs it up as it starts, which may be now, so it goes first. Then all of
 # the report, before the power goes off: the shutdown drops what the console has not sent yet.
-systemctl stop serial-getty@ttyS0.service > /dev/null 2>&1 || true
+tty=$(param console)
+systemctl stop "serial-getty@$tty.service" > /dev/null 2>&1 || true
 python3 -I -c '
 import os, sys, termios
-fd = os.open("/dev/ttyS0", os.O_WRONLY | os.O_NOCTTY)
+fd = os.open(sys.argv[2], os.O_WRONLY | os.O_NOCTTY)
 data = open(sys.argv[1], "rb").read()
 while data:
 	data = data[os.write(fd, data):]
 termios.tcdrain(fd)
-' /run/e2e-report
+' /run/e2e-report "/dev/$tty"
 systemctl poweroff

@@ -36,4 +36,4 @@ tasks:
     - task: build:build
       vars:
         PROFILE: release
-        TARGET: x86_64-unknown-linux-musl
+        TARGET: '{{ARCH | replace "amd64" "x86_64" | replace "arm64" "aarch64"}}-unknown-linux-musl'

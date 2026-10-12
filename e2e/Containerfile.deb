@@ -16,7 +16,7 @@ ARG BACKEND=networkd
 # brings up the network, as it does by default. The live rootfs needs dmsetup, which Ubuntu does not
 # pull in.
 RUN . /etc/os-release \
-  && if [ "$ID" = ubuntu ]; then packages="linux-image-virtual netplan.io"; else packages=linux-image-cloud-amd64; fi \
+  && if [ "$ID" = ubuntu ]; then packages="linux-image-virtual netplan.io"; else packages="linux-image-cloud-$(dpkg --print-architecture)"; fi \
   && if [ "$BACKEND" = nm ]; then packages="$packages network-manager"; else packages="$packages netplan.io dbus"; fi \
   && if [ "$INITRD" = nm ]; then packages="$packages network-manager"; fi \
   && apt-get update \
@@ -33,7 +33,9 @@ RUN if [ "$BACKEND" = nm ]; then \
       if [ -e /usr/lib/systemd/system/NetworkManager.service ]; then systemctl disable NetworkManager; fi; \
     fi
 
-COPY target/x86_64-unknown-linux-musl/release/seednet /usr/bin/seednet
+# The release build of seednet for the architecture of the host.
+ARG SEEDNET=target/x86_64-unknown-linux-musl/release/seednet
+COPY ${SEEDNET} /usr/bin/seednet
 COPY contrib/dracut/95seednet /usr/lib/dracut/modules.d/95seednet
 COPY contrib/systemd/seednet-rootfs /usr/libexec/seednet-rootfs
 COPY contrib/systemd/seednet.service /usr/lib/systemd/system/seednet.service

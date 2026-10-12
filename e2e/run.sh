@@ -28,10 +28,11 @@
 #   badsum   As url, with a seednet.checksum that the config does not have: the boot must stop in
 #            the initrd, saying so.
 #
-# It needs an x86_64 host with KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy,
-# xorrisofs, mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout,
-# sha256sum, openssl and python3, and the release build of seednet for x86_64-unknown-linux-musl. The
-# work goes in target/e2e.
+# It runs on an x86_64 or aarch64 host with KVM, with guests of its architecture. It needs podman,
+# passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy, xorrisofs, mksquashfs 4.6 or later,
+# mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout, sha256sum, openssl and
+# python3, and the release build of seednet for <arch>-unknown-linux-musl. The work goes in
+# target/e2e.
 set -eu
 
 distro=${1:?distro: debian, ubuntu, fedora, el9 or el10}
@@ -39,6 +40,8 @@ initrd=${2:?initrd: networkd or nm}
 backend=${3:?rootfs: networkd or nm}
 scenario=${4:?scenario: disk, neednet, cmdline, url, live, edit, https or badsum}
 case $distro in debian | ubuntu | fedora | el9 | el10) ;; *) echo "unknown distro: $distro" >&2 && exit 2 ;; esac
+arch=$(uname -m)
+case $arch in x86_64 | aarch64) ;; *) echo "unsupported architecture: $arch" >&2 && exit 2 ;; esac
 for b in "$initrd" "$backend"; do
 	case $b in networkd | nm) ;; *) echo "unknown backend: $b" >&2 && exit 2 ;; esac
 done
@@ -101,10 +104,12 @@ case $distro in
 esac
 # shellcheck disable=SC2086
 podman build -q $build --build-arg "DISTRO=$distro" --build-arg "BACKEND=$backend" \
+	--build-arg "SEEDNET=target/$arch-unknown-linux-musl/release/seednet" \
 	--build-context "tls=$tls" -t "localhost/seednet-e2e-$guest" "$repo" > image.id.new
 if ! cmp -s image.id.new image.id || [ ! -e rootfs.img ] || [ ! -e rootfs.squashfs ]; then
 	cid=$(podman create "localhost/seednet-e2e-$guest")
 	podman unshare "$repo/e2e/disks.sh" "$cid"
+	python3 -I "$repo/e2e/kernel.py" vmlinuz
 	podman rm -f "$cid" > /dev/null
 	mv image.id.new image.id
 fi
@@ -140,7 +145,12 @@ else
 	server=http://10.0.2.2:$(cat port)
 fi
 
-cmdline="console=ttyS0 panic=-1"
+# The serial console that --serial of cloud-hypervisor is: a 16550 on x86_64, a PL011 on aarch64.
+case $arch in
+	aarch64) tty=ttyAMA0 ;;
+	*) tty=ttyS0 ;;
+esac
+cmdline="console=$tty panic=-1"
 # The guests of Containerfile.rpm have SELinux, which must be enforcing and deny nothing.
 case $distro in debian | ubuntu) ;; *) cmdline="$cmdline e2e.selinux=1" ;; esac
 disks="path=cidata.img,image_type=raw,readonly=on"
