@@ -6,12 +6,16 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use seednet::Backend;
 use seednet::template::Names;
 
 /// Where systemd-networkd keeps the DHCPv4 leases, by the index of the interface.
 const NETWORKD_LEASES: &str = "run/systemd/netif/leases";
+
+/// Whether it was said that nmcli does not tell the leases, which is said once, not on every try.
+static NMCLI_WARNED: AtomicBool = AtomicBool::new(false);
 
 /// The names of the lease of the interface with the lowest index that has a host name, or none.
 pub fn dhcp(sysroot: &Path, backend: Backend) -> Names {
@@ -52,16 +56,20 @@ fn networkd_leases(sysroot: &Path) -> Vec<(u32, Names)> {
 /// The leases of NetworkManager, which keeps them to itself but for nmcli: the initrd of dracut has
 /// it.
 fn nm_leases(sysroot: &Path) -> Vec<(u32, Names)> {
-    let Ok(output) = Command::new("nmcli")
-        .args(["-t", "-f", "GENERAL.DEVICE,DHCP4", "device", "show"])
-        .output()
-    else {
-        return Vec::new();
+    let output = match run_nmcli("nmcli") {
+        Ok(output) => output,
+        // Without it, the fetch would wait for the names to its timeout without saying why.
+        Err(error) => {
+            if !NMCLI_WARNED.swap(true, Ordering::Relaxed) {
+                crate::warn(&format!(
+                    "cannot read the names that DHCP gave from NetworkManager, trying again: \
+                    {error}"
+                ));
+            }
+            return Vec::new();
+        }
     };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    parse_nmcli(&String::from_utf8_lossy(&output.stdout))
+    parse_nmcli(&output)
         .into_iter()
         .filter_map(|(device, names)| {
             let index =
@@ -73,6 +81,22 @@ fn nm_leases(sysroot: &Path) -> Vec<(u32, Names)> {
             Some((index, names))
         })
         .collect()
+}
+
+/// What `nmcli -t -f GENERAL.DEVICE,DHCP4 device show` prints, or why it does not.
+fn run_nmcli(program: &str) -> Result<String, String> {
+    let output = Command::new(program)
+        .args(["-t", "-f", "GENERAL.DEVICE,DHCP4", "device", "show"])
+        .output()
+        .map_err(|error| format!("{program}: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "{program}: {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The names in what `nmcli -t -f GENERAL.DEVICE,DHCP4 device show` prints, by the device.
@@ -134,6 +158,14 @@ mod tests {
     fn no_lease_has_no_names() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(dhcp(dir.path(), Backend::Networkd), Names::default());
+    }
+
+    #[test]
+    fn tells_why_nmcli_tells_nothing() {
+        let error = run_nmcli("seednet-test-no-such-nmcli").unwrap_err();
+        assert!(error.starts_with("seednet-test-no-such-nmcli: "), "{error}");
+        let error = run_nmcli("false").unwrap_err();
+        assert!(error.starts_with("false: exit status: 1"), "{error}");
     }
 
     #[test]

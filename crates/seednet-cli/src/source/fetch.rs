@@ -76,7 +76,13 @@ pub fn fetch(
 
     let mut waiting = false;
     let base = loop {
-        match template.expand(&names()) {
+        // Only a template with variables needs the names, which nmcli may take a while to tell.
+        let names = if template.vars().is_empty() {
+            Names::default()
+        } else {
+            names()
+        };
+        match template.expand(&names) {
             Ok(url) => break url,
             Err(missing) if time_left() => {
                 if !waiting {
