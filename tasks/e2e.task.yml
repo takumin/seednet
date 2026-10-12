@@ -8,6 +8,9 @@ includes:
   build:
     taskfile: build.task.yml
     internal: true
+  tool:
+    taskfile: tool.task.yml
+    internal: true
 
 tasks:
   # Boots guests with seednet on cloud-hypervisor and checks their network (see e2e/all.sh and
@@ -17,6 +20,7 @@ tasks:
     desc: '{{.TASK}}'
     deps:
     - task: binary
+    - task: tool:aqua:tag:cloud-hypervisor
     cmds:
     - e2e/all.sh {{.CLI_ARGS}}
 
@@ -27,6 +31,7 @@ tasks:
       vars: [DISTRO, INITRD, BACKEND, SCENARIO]
     deps:
     - task: binary
+    - task: tool:aqua:tag:cloud-hypervisor
     cmds:
     - e2e/run.sh {{.DISTRO}} {{.INITRD}} {{.BACKEND}} {{.SCENARIO}}
 

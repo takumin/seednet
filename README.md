@@ -389,7 +389,8 @@ labels of their files, which `e2e/disks.sh` puts on the disks, since `podman exp
 | `badsum` | As `url`, with a `seednet.checksum` that the config does not have: the boot must stop in the emergency shell of the initrd, saying why. |
 
 They boot guests of the architecture of the host, x86_64 or aarch64, as CI does on `ubuntu-26.04`
-and `ubuntu-26.04-arm`, and need KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy,
+and `ubuntu-26.04-arm`, and need KVM, podman, passt with vhost-user, cloud-hypervisor (which `task`
+installs with aqua), mkdosfs, mcopy,
 xorrisofs, mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later (for
 `mkfs.ext4 -d`), `ip` of iproute2, `unshare` of util-linux, `timeout` and `sha256sum` of coreutils,
 openssl and python3, and work in `target/e2e`.
