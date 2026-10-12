@@ -29,6 +29,7 @@ jobs:
         sparse-checkout-cone-mode: false
         sparse-checkout: |-
           /.aqua/
+          /contrib/
     - name: Setup aqua
       uses: aquaproj/aqua-installer@82d0e83878a8657c4a6f2ff1755d3bfbfc67f329 # v4.1.0
       with:
@@ -48,6 +49,13 @@ jobs:
         cd dist
         for f in ./*; do mv -n "$f" "${f/-release-/-}"; done
         sed -i -E 's/-release-/-/' ./*.sha256sum
+    - name: Archive contrib
+      run: |-
+        tar --sort=name --owner=0 --group=0 --numeric-owner \
+          --mtime="@$(git log -1 --format=%ct)" -cf - contrib \
+          | gzip -9n > dist/seednet-contrib.tar.gz
+        cd dist
+        sha256sum seednet-contrib.tar.gz > seednet-contrib.tar.gz.sha256sum
     - name: Verify sha256sum
       run: |-
         cd dist

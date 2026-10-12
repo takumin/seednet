@@ -36,6 +36,16 @@ jobs:
       run: |-
         cd dist
         sha256sum -c SHA256SUMS
+    - name: Check the version of the tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |-
+        version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+        if [ "${VERSION}" != "v${version}" ]; then
+          echo "::error::the tag ${VERSION} is not the version of Cargo.toml, v${version}"
+          exit 1
+        fi
+      env:
+        VERSION: ${{ github.ref_name }}
     - name: Release
       if: startsWith(github.ref, 'refs/tags/')
       run: |-
