@@ -3,7 +3,7 @@
 
 use std::fmt::Write as _;
 
-use crate::network::{DhcpOverrides, HEADER, Kind, Network, Route, RoutingRule};
+use crate::network::{DhcpOverrides, HEADER, Kind, MAC_POLICIES, Network, Route, RoutingRule};
 use crate::render::{Dir, File};
 
 /// The `.netdev` and `.network` files of every network.
@@ -11,9 +11,19 @@ use crate::render::{Dir, File};
 /// The files are named by the ID alone, as netplan names its own, so that a file keeps its name
 /// when the config changes and a drop-in or an override in /etc keeps applying to it. Where the
 /// matches of two files overlap, the first by ID wins, as with netplan.
-pub fn render(networks: &[Network], prefix: &str) -> Vec<File> {
+pub fn render(networks: &[Network], prefix: &str, warnings: &mut Vec<String>) -> Vec<File> {
     let mut files = Vec::new();
     for network in networks {
+        if let Some(policy) = network
+            .set_mac_address
+            .as_ref()
+            .filter(|mac| MAC_POLICIES.contains(&mac.as_str()))
+        {
+            warnings.push(format!(
+                "skipping the macaddress {policy} of {}, which networkd does not take",
+                network.id
+            ));
+        }
         let base = format!("{prefix}-{}", network.file_id());
         if let Some(netdev) = netdev(network) {
             files.push(file(format!("{base}.netdev"), netdev));
@@ -63,8 +73,8 @@ fn write_match(out: &mut String, network: &Network, name_key: &str) {
         }
         out.push('\n');
     }
-    if let Some(driver) = &network.driver {
-        let _ = writeln!(out, "Driver={driver}");
+    if !network.drivers.is_empty() {
+        let _ = writeln!(out, "Driver={}", network.drivers.join(" "));
     }
 }
 
@@ -78,8 +88,8 @@ fn netdev(network: &Network) -> Option<String> {
 
     let mut out = String::from(HEADER);
     let _ = writeln!(out, "\n[NetDev]\nName={}\nKind={kind}", network.id);
-    if let Some(mac) = &network.set_mac_address {
-        let _ = writeln!(out, "MACAddress={}", mac.to_ascii_lowercase());
+    if let Some(mac) = mac_address(network) {
+        let _ = writeln!(out, "MACAddress={mac}");
     }
 
     match &network.kind {
@@ -155,14 +165,11 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
     let optional = network.optional || (controller.is_none() && !network.is_configured());
 
     // A created interface gets its MAC address in its .netdev.
-    let mac_address = network
-        .set_mac_address
-        .as_ref()
-        .filter(|_| !network.is_virtual());
+    let mac_address = mac_address(network).filter(|_| !network.is_virtual());
     if mac_address.is_some() || network.mtu.is_some() || optional {
         out.push_str("\n[Link]\n");
         if let Some(mac) = mac_address {
-            let _ = writeln!(out, "MACAddress={}", mac.to_ascii_lowercase());
+            let _ = writeln!(out, "MACAddress={mac}");
         }
         if let Some(mtu) = network.mtu {
             let _ = writeln!(out, "MTUBytes={mtu}");
@@ -364,6 +371,15 @@ fn write_route(out: &mut String, route: &Route) {
     if let Some(table) = route.table {
         let _ = writeln!(out, "Table={table}");
     }
+}
+
+/// The MAC address to give the interface, but a policy of NetworkManager.
+fn mac_address(network: &Network) -> Option<String> {
+    network
+        .set_mac_address
+        .as_ref()
+        .filter(|mac| !MAC_POLICIES.contains(&mac.as_str()))
+        .map(|mac| mac.to_ascii_lowercase())
 }
 
 fn yes_no(value: bool) -> &'static str {

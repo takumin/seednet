@@ -160,7 +160,9 @@ struct AddressConfig {
 struct Match {
     macaddress: Option<String>,
     name: Option<String>,
-    driver: Option<String>,
+    /// A glob, or a list of them.
+    #[serde(default, deserialize_with = "lenient::list")]
+    driver: Vec<String>,
     #[serde(flatten)]
     rest: Rest,
 }
@@ -245,9 +247,9 @@ fn pairs(parameters: &BTreeMap<String, Value>) -> Vec<(&str, &Value)> {
 
 fn ethernet_network(id: String, ethernet: Ethernet, warnings: &mut Vec<String>) -> Result<Network> {
     // Without a match the ID is the interface name.
-    let (mac_address, name, driver) = match ethernet.matches {
+    let (mac_address, name, drivers) = match ethernet.matches {
         Some(m) => {
-            if m.macaddress.is_none() && m.name.is_none() && m.driver.is_none() {
+            if m.macaddress.is_none() && m.name.is_none() && m.driver.is_empty() {
                 bail!("the match of {id} has none of macaddress, name and driver");
             }
             lenient::warn_unknown(&m.rest, &format!("the match of {id}"), warnings);
@@ -257,14 +259,14 @@ fn ethernet_network(id: String, ethernet: Ethernet, warnings: &mut Vec<String>) 
             if ethernet.set_name.is_some() {
                 bail!("{id} has set-name without match");
             }
-            (None, Some(id.clone()), None)
+            (None, Some(id.clone()), Vec::new())
         }
     };
 
     let mut network = network(id, Kind::Ethernet, ethernet.macaddress, ethernet.common, warnings)?;
     network.mac_address = mac_address;
     network.name = name;
-    network.driver = driver;
+    network.drivers = drivers;
     network.set_name = ethernet.set_name;
     Ok(network)
 }

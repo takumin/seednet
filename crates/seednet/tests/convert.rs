@@ -723,6 +723,11 @@ fn invalid_configs_fail() {
         "    dhcp4: true\n    dhcp-identifier: hostname\n",
         // netplan takes no different overrides for DHCPv4 and DHCPv6 with networkd.
         "    dhcp4: true\n    dhcp6: true\n    dhcp4-overrides: {use-dns: false}\n",
+        // What would break a file, or is no MAC address.
+        "    dhcp4: true\n    dhcp4-overrides: {hostname: \"h\\nUseDNS=no\"}\n",
+        "    nameservers: {search: [\"a;b\"]}\n",
+        "    macaddress: not-a-mac\n",
+        "    addresses: [192.0.2.10/24: {label: \"a b\"}]\n",
         // netplan wants the prefix length of an address.
         "    addresses: [192.0.2.10]\n",
         // A default route without via has no family, and a route needs its destination.
@@ -785,6 +790,45 @@ config:
         networkd.contains("[Route]\nDestination=0.0.0.0/0\nGateway=192.0.2.254\n"),
         "{networkd}"
     );
+}
+
+#[test]
+fn matches_and_mac_addresses() {
+    let config = "version: 2
+ethernets:
+    id0:
+        match: {driver: [ixgbe, \"igb*\"]}
+        macaddress: random
+    id1:
+        match: {macaddress: \"52:54:00:AA:BB:CC\"}
+        macaddress: \"52:54:00:DD:EE:FF\"
+";
+    assert!(convert("version: 2\nethernets:\n  id0:\n    match: {macaddress: x}\n").is_err());
+    assert!(convert("version: 2\nethernets:\n  \"a\\nb\":\n    match: {name: a}\n").is_err());
+
+    let networkd = render(config);
+    assert!(networkd[0].1.contains("[Match]\nDriver=ixgbe igb*\n"), "{}", networkd[0].1);
+    assert!(!networkd[0].1.contains("MACAddress"), "{}", networkd[0].1);
+    assert!(
+        networkd[1]
+            .1
+            .contains("[Link]\nMACAddress=52:54:00:dd:ee:ff\n"),
+        "{}",
+        networkd[1].1
+    );
+    let conversion = convert(config).unwrap();
+    let mut warnings = Vec::new();
+    seednet::render(&conversion.networks, Backend::Networkd, "10-seednet", &mut warnings);
+    assert_eq!(
+        warnings,
+        ["skipping the macaddress random of id0, which networkd does not take"]
+    );
+
+    let (nm, warnings) = render_nm(config);
+    assert!(nm[0].contains("cloned-mac-address=random\n"), "{}", nm[0]);
+    assert!(nm[0].contains("[match]\ndriver=ixgbe;igb*;\n"), "{}", nm[0]);
+    assert!(nm[1].contains("cloned-mac-address=52:54:00:DD:EE:FF\n"), "{}", nm[1]);
+    assert!(warnings.is_empty(), "{warnings:?}");
 }
 
 #[test]

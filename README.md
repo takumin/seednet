@@ -191,9 +191,9 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | `type: bond` (`bond_interfaces`) | `bonds` (`interfaces`) | `.netdev` `Kind=bond`, `Bond=` | `type=bond`, `master=` |
 | `type: bridge` (`bridge_interfaces`) | `bridges` (`interfaces`) | `.netdev` `Kind=bridge`, `Bridge=` | `type=bridge`, `master=` |
 | `type: vlan` (`vlan_link`, `vlan_id`) | `vlans` (`link`, `id`) | `.netdev` `Kind=vlan`, `VLAN=` | `type=vlan`, `parent=` |
-| `mac_address`, else `name` | `match` (`macaddress`, `name`, `driver`), else the ID | `[Match]` | `mac-address=`, `interface-name=`, `[match]` |
+| `mac_address`, else `name` | `match` (`macaddress`, `name`, `driver` or a list of them), else the ID | `[Match]` | `mac-address=`, `interface-name=`, `[match]` |
 | `name` with `mac_address` | `set-name` | `.link` `Name=` | `.link` `Name=` |
-| `mac_address` of a bond, bridge or VLAN | `macaddress` | `MACAddress=` | `cloned-mac-address=` |
+| `mac_address` of a bond, bridge or VLAN | `macaddress` | `MACAddress=`, but `permanent`, `random`, `stable` and `preserve` skipped | `cloned-mac-address=` |
 | `mtu`, static subnet `mtu` | `mtu` | `MTUBytes=` | `mtu=` |
 | `optional` | `optional` | `RequiredForOnline=no` | skipped |
 | subnet `dhcp`, `dhcp4`, `dhcp6`, `ipv6_slaac`, `ipv6_dhcpv6-stateless`, `ipv6_dhcpv6-stateful` | `dhcp4`, `dhcp6` | `DHCP=` | `method=auto` |
@@ -235,9 +235,11 @@ spellings (`bond-miimon`, `bridge_fd` and so on). `mode`, `lacp-rate`, `transmit
 NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
 that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space.
 
-The config fails, as netplan does, on an address without its prefix length, and a route without `to`
-or to `default` without `via`, whose family it would not know. A route to an address without a
-prefix length is to that host alone.
+The config fails, as netplan does, on an address without its prefix length, a route without `to`
+or to `default` without `via`, whose family it would not know, and a MAC address that is none. A
+route to an address without a prefix length is to that host alone. The values that go in the files
+as they are, such as IDs, names, driver globs, search domains, the DHCP hostname and address labels,
+may not have white space, control characters, `;`, `,`, `\` or quotes, which would break the files.
 
 The DHCP overrides are `use-dns`, `use-ntp`, `use-hostname`, `use-domains`, `use-mtu`,
 `use-routes`, `route-metric`, `send-hostname` and `hostname`. As netplan writes them to one

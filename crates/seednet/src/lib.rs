@@ -63,6 +63,7 @@ pub fn convert(text: &str) -> Result<Conversion> {
     };
     network::check_references(&networks)?;
     for network in &networks {
+        network.check_values()?;
         if let Some(name) = network.ifname() {
             network::check_ifname(name)
                 .with_context(|| format!("invalid interface name of {}", network.id))?;

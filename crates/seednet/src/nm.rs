@@ -5,7 +5,7 @@ use std::net::IpAddr;
 
 use sha1::Digest as _;
 
-use crate::network::{DhcpOverrides, HEADER, Kind, Network, Route};
+use crate::network::{DhcpOverrides, HEADER, Kind, MAC_POLICIES, Network, Route};
 use crate::render::{Dir, File};
 
 /// One keyfile per network.
@@ -81,7 +81,13 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
         let _ = writeln!(ethernet, "mac-address={}", mac.to_ascii_uppercase());
     }
     if let Some(mac) = &network.set_mac_address {
-        let _ = writeln!(ethernet, "cloned-mac-address={}", mac.to_ascii_uppercase());
+        // A policy, such as random, goes as netplan writes it, in lower case.
+        let mac = if MAC_POLICIES.contains(&mac.as_str()) {
+            mac.clone()
+        } else {
+            mac.to_ascii_uppercase()
+        };
+        let _ = writeln!(ethernet, "cloned-mac-address={mac}");
     }
     if let Some(mtu) = network.mtu {
         let _ = writeln!(ethernet, "mtu={mtu}");
@@ -94,7 +100,7 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
         .name
         .as_ref()
         .filter(|_| !network.is_virtual() && ifname.is_none());
-    if glob.is_some() || network.driver.is_some() {
+    if glob.is_some() || !network.drivers.is_empty() {
         out.push_str("\n[match]\n");
         if let Some(name) = glob {
             // Found by its name, the interface is found after the rename too.
@@ -104,8 +110,8 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
             }
             out.push('\n');
         }
-        if let Some(driver) = &network.driver {
-            let _ = writeln!(out, "driver={driver}");
+        if !network.drivers.is_empty() {
+            let _ = writeln!(out, "driver={};", network.drivers.join(";"));
         }
     }
 
