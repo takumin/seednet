@@ -4,7 +4,7 @@
 Description=Network configuration from the NoCloud network-config
 DefaultDependencies=no
 ConditionPathExists=/run/seednet/neednet
-ConditionKernelCommandLine=!seednet.url
+ConditionPathExists=!/run/seednet/url
 After=dracut-cmdline.service systemd-udev-trigger.service
 Before=systemd-networkd.service nm-initrd.service NetworkManager-initrd.service
 Before=network-pre.target dracut-initqueue.service

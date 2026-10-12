@@ -583,3 +583,17 @@ fn a_cidata_disk_that_does_not_mount_is_skipped() {
     assert!(sysroot.networks().is_empty());
     assert!(!sysroot.path("run/seednet/cidata").exists());
 }
+
+#[test]
+fn initrd_reads_the_cmdline_of_dracut_too() {
+    let url = serve(OTHER_CONFIG, 1);
+    let sysroot = Sysroot::new("ro seednet.url-timeout=5");
+    sysroot.write("etc/cmdline.d/50-seednet.conf", &format!("seednet.url={url}\n"));
+    sysroot.write("etc/cmdline.d/60-other.conf", "seednet.url-timeout=soon\n");
+    sysroot.write("etc/cmdline.d/README", "seednet.url=http://192.0.2.1/\n");
+
+    // The kernel has the last word, and the rootfs has no /etc/cmdline.d of dracut.
+    assert_success(&sysroot.apply("initrd"));
+    assert_eq!(sysroot.networks(), ["10-seednet-eth1.network"]);
+    assert_eq!(sysroot.read("run/seednet/source"), format!("{url}\n"));
+}

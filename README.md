@@ -48,7 +48,9 @@ from in `/run/seednet/source`, and the backend in `/run/seednet/backend`. In the
 disk says. Seednet itself never writes to `/etc`.
 
 - `--stage <initrd|rootfs>`: where it runs, which decides the sources above.
-- `--cmdline <FILE>`: the kernel command line to read (default: `proc/cmdline` under the sysroot).
+- `--cmdline <FILE>`: the kernel command line to read, instead of `/proc/cmdline` and, with
+  `--stage initrd`, the `*.conf` files in `/etc/cmdline.d` before it, where
+  `dracut --kernel-cmdline` puts the arguments it adds, as dracut reads them.
 - `--cidata-dir <DIR>`: a directory with the CIDATA files, instead of finding and mounting the disk.
 - `--ca-file <FILE>`: the CA certificates for an `https` URL, instead of the system bundle.
 - `--takeover`: when a config is found, keeps the others from configuring the network themselves,
@@ -66,18 +68,22 @@ disk says. Seednet itself never writes to `/etc`.
 
 #### Kernel command line
 
-- `seednet.network-config=<BASE64>`: the config itself, in base64 of the text or of its gzip. It
-  wins over every other source, and warns when it overrides `/etc/seednet/network-config` or a
-  CIDATA disk.
+- `seednet.network-config=<BASE64>`: the config itself, in base64 (standard or URL-safe, padded or
+  not) of the text or of its gzip. It wins over every other source, and warns when it overrides
+  `/etc/seednet/network-config` or a CIDATA disk.
 - `seednet.url=<URL>`: an `http` or `https` URL to fetch the config from, over a network the initrd
   brought up for it. A fetch that does not succeed fails, and so fails the boot. An `https` URL
-  follows no redirect to `http`.
+  follows no redirect to `http`. An empty one undoes one before it.
 - `seednet.checksum=<ALGORITHM>:<HEX>`: what the fetched config must hash to, with `md5`, `sha1`,
   `sha256` or `sha512`. Prefer `sha256` or `sha512`.
 - `seednet.url-timeout=<SECONDS>`: how long to keep trying to fetch the config while the network
   comes up (default: 60). A failure that trying again would not fix, such as a bad certificate or a
   `404`, fails at once.
-- `rd.seednet.timeout=<SECONDS>`: how long to wait for the CIDATA disk (default: 5).
+- `rd.seednet.timeout=<SECONDS>`: how long to wait for the CIDATA disk (default: 5), in the rootfs
+  too.
+
+Only the last of a parameter counts, so only it must be valid, and `_` is the same as `-` in a name,
+as systemd takes its own. The rootfs does not read the parameters of the fetch, but for the URL.
 
 The CIDATA disk is the one labelled `cidata` or `CIDATA`, as `vfat` or `iso9660`, as cloud-init
 looks for it. It is mounted read-only while it is read, or read where it is mounted already. A disk
@@ -151,6 +157,9 @@ that implies it, such as `root=live:https://...`, or with `seednet.url=`.
 - With `seednet.url=`, it fetches the config over the DHCP network of dracut, then renames the
   interfaces and restarts systemd-networkd or NetworkManager with the config, before the initqueue
   reaches for the rootfs.
+
+`seednet.url=` may be on the kernel command line or in the initrd, as `dracut --kernel-cmdline`
+puts it there.
 
 Either way, a config replaces the catch-all DHCP of dracut, and a failure ends in the emergency
 shell. The module brings the bonding, bridge, 8021q, vfat and iso9660 modules, and the CA bundle

@@ -29,37 +29,42 @@ pub struct Params {
 }
 
 impl Params {
-    /// Parses the command line, as in `/proc/cmdline`.
-    pub fn parse(cmdline: &str) -> Result<Self> {
-        let mut params = Self::default();
-
+    /// Parses the command line, as in `/proc/cmdline`. Only the last occurrence of a parameter
+    /// counts, so only it must be valid. Without `fetch`, as in the rootfs, which fetches nothing,
+    /// the parameters of the fetch are not read beyond the URL.
+    pub fn parse(cmdline: &str, fetch: bool) -> Result<Self> {
+        let mut last = std::collections::HashMap::new();
         for arg in split(cmdline) {
-            let Some((key, value)) = arg.split_once('=') else {
-                continue;
-            };
-            match key {
-                "seednet.network-config" => {
-                    params.network_config =
-                        Some(decode(value).context("invalid seednet.network-config")?);
-                }
-                "seednet.url" => params.url = Some(value.to_owned()),
-                "seednet.checksum" => {
-                    params.checksum = Some(value.parse().context("invalid seednet.checksum")?);
-                }
-                "seednet.url-timeout" => {
-                    params.url_timeout =
-                        Some(seconds(value).context("invalid seednet.url-timeout")?);
-                }
-                "rd.seednet.timeout" => {
-                    params.cidata_timeout =
-                        Some(seconds(value).context("invalid rd.seednet.timeout")?);
-                }
-                _ => {}
+            if let Some((key, value)) = arg.split_once('=') {
+                // As systemd takes its own, `-` and `_` are the same in a name.
+                last.insert(key.replace('_', "-"), value.to_owned());
             }
         }
+        let get = |key: &str| last.get(key).map(String::as_str);
 
-        if params.checksum.is_some() && params.url.is_none() {
-            bail!("seednet.checksum is given without seednet.url");
+        let mut params = Self {
+            network_config: get("seednet.network-config")
+                .map(|value| decode(value).context("invalid seednet.network-config"))
+                .transpose()?,
+            // An empty one undoes one before it, as for a boot that should not fetch.
+            url: get("seednet.url")
+                .filter(|url| !url.is_empty())
+                .map(str::to_owned),
+            cidata_timeout: get("rd.seednet.timeout")
+                .map(|value| seconds(value).context("invalid rd.seednet.timeout"))
+                .transpose()?,
+            ..Self::default()
+        };
+        if fetch {
+            params.checksum = get("seednet.checksum")
+                .map(|value| value.parse().context("invalid seednet.checksum"))
+                .transpose()?;
+            params.url_timeout = get("seednet.url-timeout")
+                .map(|value| seconds(value).context("invalid seednet.url-timeout"))
+                .transpose()?;
+            if params.checksum.is_some() && params.url.is_none() {
+                bail!("seednet.checksum is given without seednet.url");
+            }
         }
 
         Ok(params)
@@ -109,7 +114,17 @@ pub fn decode(value: &str) -> Result<String> {
         GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
     );
 
-    let bytes = ENGINE.decode(value.trim()).context("invalid base64")?;
+    // The URL-safe alphabet too, which has no characters that a boot loader may take apart.
+    let value: String = value
+        .trim()
+        .chars()
+        .map(|c| match c {
+            '-' => '+',
+            '_' => '/',
+            c => c,
+        })
+        .collect();
+    let bytes = ENGINE.decode(value).context("invalid base64")?;
     let bytes = if bytes.starts_with(&[0x1f, 0x8b]) {
         gunzip(&bytes)?
     } else {
@@ -126,7 +141,7 @@ fn gunzip(bytes: &[u8]) -> Result<Vec<u8>> {
     use std::io::Read as _;
 
     let mut out = Vec::new();
-    flate2::read::GzDecoder::new(bytes)
+    flate2::read::MultiGzDecoder::new(bytes)
         .take(MAX_CONFIG_SIZE as u64 + 1)
         .read_to_end(&mut out)
         .context("invalid gzip")?;
@@ -158,11 +173,14 @@ mod tests {
     #[test]
     fn parses_the_seednet_params() {
         let empty_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-        let params = Params::parse(&format!(
-            "ro seednet.url=http://a/1 seednet.url=http://a/2 \
+        let params = Params::parse(
+            &format!(
+                "ro seednet.url=http://a/1 seednet.url=http://a/2 \
             seednet.checksum=sha256:{empty_sha256} seednet.url-timeout=30 rd.seednet.timeout=3 \
             seednet.network-config=dmVyc2lvbjogMgo\n",
-        ))
+            ),
+            true,
+        )
         .unwrap();
 
         assert_eq!(params.url.as_deref(), Some("http://a/2"));
@@ -170,14 +188,29 @@ mod tests {
         assert_eq!(params.url_timeout, Some(Duration::from_secs(30)));
         assert_eq!(params.cidata_timeout, Some(Duration::from_secs(3)));
         assert_eq!(params.network_config.as_deref(), Some("version: 2\n"));
+
+        let params = Params::parse("seednet.url=http://a/1 seednet.url=", true).unwrap();
+        assert_eq!(params.url, None);
     }
 
     #[test]
     fn rejects_bad_params() {
-        assert!(Params::parse("seednet.network-config=!!!").is_err());
-        assert!(Params::parse("seednet.url-timeout=soon").is_err());
-        assert!(Params::parse("seednet.checksum=sha256:00").is_err());
-        assert!(Params::parse("seednet.checksum=md5:d41d8cd98f00b204e9800998ecf8427e").is_err());
+        assert!(Params::parse("seednet.network-config=!!!", true).is_err());
+        assert!(Params::parse("seednet.url-timeout=soon", true).is_err());
+        assert!(Params::parse("seednet.checksum=sha256:00", true).is_err());
+        let md5 = "seednet.checksum=md5:d41d8cd98f00b204e9800998ecf8427e";
+        assert!(Params::parse(md5, true).is_err());
+
+        // What is overridden, or what the rootfs does not fetch with, need not be valid.
+        assert!(Params::parse("seednet.url-timeout=soon seednet.url-timeout=5", true).is_ok());
+        assert!(Params::parse("seednet.url-timeout=soon", false).is_ok());
+        assert!(Params::parse(md5, false).is_ok());
+    }
+
+    #[test]
+    fn takes_names_with_underscores_too() {
+        let params = Params::parse("seednet.network_config=dmVyc2lvbjogMgo", true).unwrap();
+        assert_eq!(params.network_config.as_deref(), Some("version: 2\n"));
     }
 
     #[test]
@@ -189,6 +222,16 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(gz.finish().unwrap());
 
         assert_eq!(decode(&encoded).unwrap(), "version: 1\n");
+
+        // Of several members, as from gzip of files one after another.
+        let member = |text: &[u8]| {
+            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+            gz.write_all(text).unwrap();
+            gz.finish().unwrap()
+        };
+        let members = [member(b"version: 2\n"), member(b"ethernets: {}\n")].concat();
+        let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(members);
+        assert_eq!(decode(&encoded).unwrap(), "version: 2\nethernets: {}\n");
     }
 
     #[test]

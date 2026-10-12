@@ -21,10 +21,15 @@ const ETC_CONFIG: &str = "etc/seednet/network-config";
 /// How long to keep trying to fetch `seednet.url=` unless `seednet.url-timeout=` says otherwise.
 const DEFAULT_URL_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Where dracut keeps the arguments that it adds to the kernel command line, as those that
+/// `dracut --kernel-cmdline` puts in the initrd.
+const CMDLINE_D: &str = "etc/cmdline.d";
+
 pub struct Options {
     pub sysroot: PathBuf,
     pub stage: Stage,
-    pub cmdline: PathBuf,
+    /// The kernel command line to read instead of the one of the system.
+    pub cmdline: Option<PathBuf>,
     pub cidata_dir: Option<PathBuf>,
     pub ca_file: Option<PathBuf>,
 }
@@ -99,6 +104,39 @@ pub fn find(options: &Options, params: &Params) -> Result<Option<(String, String
         None => cidata::read(sysroot, params.cidata_timeout.unwrap_or(cidata::DEFAULT_TIMEOUT))?,
     };
     Ok(text.map(|text| (text, "the CIDATA disk".to_owned())))
+}
+
+/// The kernel command line: /proc/cmdline, after the files of /etc/cmdline.d in an initrd, as
+/// dracut reads it, so that the kernel has the last word.
+pub fn read_cmdline(options: &Options) -> Result<String> {
+    let read = |path: &Path| {
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))
+    };
+    if let Some(cmdline) = &options.cmdline {
+        return read(cmdline);
+    }
+
+    let mut cmdline = String::new();
+    if options.stage == Stage::Initrd {
+        let mut files: Vec<_> = match fs::read_dir(options.sysroot.join(CMDLINE_D)) {
+            Ok(entries) => entries
+                .map(|entry| entry.map(|entry| entry.path()))
+                .collect::<Result<_, _>>()
+                .with_context(|| format!("failed to read /{CMDLINE_D}"))?,
+            Err(error) if error.kind() == ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to read /{CMDLINE_D}"));
+            }
+        };
+        files.retain(|path| path.extension().is_some_and(|ext| ext == "conf"));
+        files.sort();
+        for file in files {
+            cmdline.push_str(&read(&file)?);
+            cmdline.push(' ');
+        }
+    }
+    cmdline.push_str(&read(&options.sysroot.join("proc/cmdline"))?);
+    Ok(cmdline)
 }
 
 fn cidata_present(options: &Options) -> bool {

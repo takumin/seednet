@@ -54,9 +54,10 @@ enum Command {
         #[arg(long, value_enum)]
         stage: Stage,
 
-        /// The kernel command line to read, relative to the sysroot.
-        #[arg(long, default_value = "proc/cmdline")]
-        cmdline: PathBuf,
+        /// The kernel command line to read, relative to the sysroot, instead of proc/cmdline and,
+        /// in an initrd, the files of dracut in etc/cmdline.d.
+        #[arg(long)]
+        cmdline: Option<PathBuf>,
 
         /// A directory with the CIDATA files, instead of finding and mounting the disk.
         #[arg(long)]
@@ -130,7 +131,7 @@ fn main() -> Result<()> {
             let options = source::Options {
                 sysroot: args.sysroot.clone(),
                 stage,
-                cmdline: args.sysroot.join(cmdline),
+                cmdline: cmdline.map(|cmdline| args.sysroot.join(cmdline)),
                 cidata_dir,
                 ca_file,
             };
@@ -147,9 +148,10 @@ fn main() -> Result<()> {
 /// Finds the config, converts it and writes the files, and tells whether it found one. Finding none
 /// leaves the network alone.
 fn apply(options: &source::Options, output: &output::Output) -> Result<bool> {
-    let cmdline = fs::read_to_string(&options.cmdline)
-        .with_context(|| format!("failed to read {}", options.cmdline.display()))?;
-    let params = Params::parse(&cmdline).context("invalid kernel command line")?;
+    let cmdline = source::read_cmdline(options)?;
+    // The rootfs fetches nothing, so it need not read how to.
+    let params = Params::parse(&cmdline, options.stage == Stage::Initrd)
+        .context("invalid kernel command line")?;
     if options.stage == Stage::Rootfs {
         output.mark_network_rootfs(source::netrootfs::is_network_rootfs(&options.sysroot))?;
     }
