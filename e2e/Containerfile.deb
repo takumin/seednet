@@ -1,0 +1,54 @@
+# The guests of the end-to-end tests on Debian and Ubuntu: cloud-init, seednet in a dracut initrd
+# with systemd-networkd or NetworkManager, and systemd-networkd with netplan or NetworkManager.
+ARG DISTRO=debian
+
+FROM docker.io/library/debian:trixie@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5 AS debian
+FROM docker.io/library/ubuntu:26.04@sha256:f144425ff09be612d6d9ad965196e9cdc23dae1f42110a8a11a3e9a8198759f7 AS ubuntu
+
+# hadolint ignore=DL3006
+FROM ${DISTRO}
+
+ARG INITRD=networkd
+ARG BACKEND=networkd
+
+# dbus comes with NetworkManager, and networkctl needs it to reload systemd-networkd. The initrd
+# resolves host names with systemd-resolved, or with NetworkManager. Ubuntu has netplan whichever
+# brings up the network, as it does by default. The live rootfs needs dmsetup, which Ubuntu does not
+# pull in.
+RUN . /etc/os-release \
+  && if [ "$ID" = ubuntu ]; then packages="linux-image-virtual netplan.io"; else packages=linux-image-cloud-amd64; fi \
+  && if [ "$BACKEND" = nm ]; then packages="$packages network-manager"; else packages="$packages netplan.io dbus"; fi \
+  && if [ "$INITRD" = nm ]; then packages="$packages network-manager"; fi \
+  && apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    systemd-sysv udev kmod iproute2 cloud-init \
+    dracut dracut-network dracut-live dmsetup curl ca-certificates systemd-resolved $packages \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# NetworkManager may be in the image for the initrd alone.
+RUN if [ "$BACKEND" = nm ]; then \
+      systemctl disable systemd-networkd; systemctl enable NetworkManager; \
+    else \
+      systemctl enable systemd-networkd; \
+      if [ -e /usr/lib/systemd/system/NetworkManager.service ]; then systemctl disable NetworkManager; fi; \
+    fi
+
+COPY target/x86_64-unknown-linux-musl/release/seednet /usr/bin/seednet
+COPY contrib/dracut/95seednet /usr/lib/dracut/modules.d/95seednet
+COPY contrib/systemd/seednet-rootfs /usr/libexec/seednet-rootfs
+COPY contrib/systemd/seednet.service /usr/lib/systemd/system/seednet.service
+COPY e2e/guest/check.sh /usr/local/bin/e2e-check
+COPY e2e/guest/editor.sh /usr/local/bin/e2e-editor
+COPY e2e/guest/e2e-check.service /usr/lib/systemd/system/e2e-check.service
+
+# The CA of the HTTPS server of the tests, in the CA bundle that the initrd gets.
+COPY --from=tls ca.crt /usr/local/share/ca-certificates/seednet-e2e.crt
+RUN update-ca-certificates
+
+# The initrd has the backend of INITRD, whatever the rootfs has.
+RUN if [ "$INITRD" = nm ]; then add=network-manager omit=systemd-networkd; else add=systemd-networkd omit=network-manager; fi \
+  && systemctl enable seednet.service e2e-check.service \
+  && kver=$(ls /lib/modules) \
+  && cp "/boot/vmlinuz-$kver" /boot/vmlinuz.seednet \
+  && dracut --force --no-hostonly --add "seednet dmsquash-live livenet $add" \
+      --omit "$omit network-legacy" --kver "$kver" /boot/initrd.seednet.img

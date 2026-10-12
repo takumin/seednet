@@ -1,0 +1,63 @@
+# The guests of the end-to-end tests on Fedora and Enterprise Linux: cloud-init, seednet in a dracut
+# initrd with systemd-networkd or NetworkManager, whichever the rootfs has, and SELinux enforcing.
+# Enterprise Linux has NetworkManager only, as systemd-networkd is not in its repositories.
+ARG DISTRO=fedora
+
+FROM registry.fedoraproject.org/fedora:44@sha256:1b8544582f974533fb8d9a5d6bf6dc2caf0d977ea54979d5e864a6ffd345c32e AS fedora
+FROM quay.io/rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS el9
+FROM quay.io/almalinuxorg/almalinux:10@sha256:112a396798d93f15b66f19786d553ed3f37d4503db71a92a871748bc731c797c AS el10
+
+# hadolint ignore=DL3006
+FROM ${DISTRO}
+
+ARG BACKEND=networkd
+
+# The live rootfs needs squashfs, which Enterprise Linux 10 has in kernel-modules only. curl is
+# curl-minimal on Enterprise Linux 9, which the full one conflicts with.
+# networkctl edit needs a terminal from script, which Fedora has apart from util-linux, and D-Bus.
+# Fedora has systemd-resolved, as it does by default, and the initrd resolves host names with it;
+# with NetworkManager alone, as on Enterprise Linux, NetworkManager writes /etc/resolv.conf.
+RUN . /etc/os-release \
+  && if [ "$BACKEND" = nm ]; then packages=NetworkManager; else packages="systemd-networkd util-linux-script"; fi \
+  && if [ "$ID" = fedora ]; then packages="$packages systemd-resolved"; fi \
+  && dnf -y install --setopt=install_weak_deps=False \
+    systemd systemd-udev dbus-broker kmod iproute procps-ng findutils kernel-core cloud-init \
+    dracut dracut-network dracut-live /usr/bin/curl ca-certificates \
+    selinux-policy-targeted libselinux-utils python3-libselinux $packages \
+  && if ! modinfo -k "$(ls /lib/modules)" squashfs > /dev/null 2>&1; then \
+    dnf -y install --setopt=install_weak_deps=False kernel-modules; \
+  fi \
+  && dnf clean all
+
+# NetworkManager comes with dracut-network on Fedora, enabled, so it is disabled for networkd.
+RUN if [ "$BACKEND" = nm ]; then \
+      systemctl enable NetworkManager; \
+    else \
+      systemctl enable systemd-networkd; \
+      if [ -e /usr/lib/systemd/system/NetworkManager.service ]; then systemctl disable NetworkManager; fi; \
+    fi \
+  && if [ -e /usr/lib/systemd/system/systemd-resolved.service ]; then systemctl enable systemd-resolved; fi
+
+COPY target/x86_64-unknown-linux-musl/release/seednet /usr/bin/seednet
+COPY contrib/dracut/95seednet /usr/lib/dracut/modules.d/95seednet
+COPY contrib/systemd/seednet-rootfs /usr/libexec/seednet-rootfs
+COPY contrib/systemd/seednet.service /usr/lib/systemd/system/seednet.service
+COPY e2e/guest/check.sh /usr/local/bin/e2e-check
+COPY e2e/guest/editor.sh /usr/local/bin/e2e-editor
+COPY e2e/guest/e2e-check.service /usr/lib/systemd/system/e2e-check.service
+
+# The CA of the HTTPS server of the tests, in the CA bundle that the initrd gets.
+COPY --from=tls ca.crt /etc/pki/ca-trust/source/anchors/seednet-e2e.crt
+RUN update-ca-trust
+
+# The initrd has the backend of the rootfs: dracut would take NetworkManager whenever it is there.
+RUN if [ "$BACKEND" = nm ]; then add=network-manager omit=systemd-networkd; else add=systemd-networkd omit=network-manager; fi \
+  && systemctl enable seednet.service e2e-check.service \
+  && kver=$(ls /lib/modules) \
+  && mkdir -p /boot && cp "/lib/modules/$kver/vmlinuz" /boot/vmlinuz.seednet \
+  && dracut --force --no-hostonly --add "seednet dmsquash-live livenet $add" \
+      --omit "$omit" --kver "$kver" /boot/initrd.seednet.img
+
+# Last, so that the labels are of every file.
+RUN --mount=type=bind,source=e2e/guest/labels.py,target=/tmp/labels.py \
+  python3 -I /tmp/labels.py > /.e2e-labels

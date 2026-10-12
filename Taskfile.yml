@@ -15,6 +15,7 @@ includes:
   doc: ./tasks/doc.task.yml
   build: ./tasks/build.task.yml
   release: ./tasks/release.task.yml
+  e2e: ./tasks/e2e.task.yml
 
 tasks:
   default:

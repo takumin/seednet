@@ -1,0 +1,40 @@
+---
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+includes:
+  build:
+    taskfile: build.task.yml
+    internal: true
+
+tasks:
+  # Boots guests with seednet on cloud-hypervisor and checks their network (see e2e/all.sh and
+  # e2e/run.sh), the guests at once. Not part of the default `task all`: it needs KVM, podman,
+  # passt, cloud-hypervisor, mkdosfs, mcopy, mksquashfs, debugfs, openssl and python3, and takes
+  # minutes. Some guests only: task e2e -- debian-nm-networkd el10-nm-nm
+  default:
+    desc: '{{.TASK}}'
+    deps:
+    - task: binary
+    cmds:
+    - e2e/all.sh {{.CLI_ARGS}}
+
+  # One guest: task e2e:run DISTRO=debian INITRD=nm BACKEND=networkd SCENARIO=live
+  run:
+    desc: '{{.TASK}}'
+    requires:
+      vars: [DISTRO, INITRD, BACKEND, SCENARIO]
+    deps:
+    - task: binary
+    cmds:
+    - e2e/run.sh {{.DISTRO}} {{.INITRD}} {{.BACKEND}} {{.SCENARIO}}
+
+  binary:
+    internal: true
+    cmds:
+    - task: build:build
+      vars:
+        PROFILE: release
+        TARGET: x86_64-unknown-linux-musl

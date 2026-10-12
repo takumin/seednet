@@ -1,0 +1,29 @@
+network:
+  version: 2
+  ethernets:
+    nic0:
+      match: {macaddress: "52:54:00:00:00:01"}
+      set-name: nic0
+    nic1:
+      match: {macaddress: "52:54:00:00:00:02"}
+      set-name: nic1
+    nic2:
+      match: {macaddress: "52:54:00:00:00:03"}
+      set-name: nic2
+  bonds:
+    bond0:
+      interfaces: [nic0, nic1]
+      parameters: {mode: active-backup, mii-monitor-interval: 100, primary: nic0}
+      addresses: [10.0.2.15/24]
+      routes: [{to: default, via: 10.0.2.2, metric: 100}]
+      nameservers: {addresses: [10.0.2.3], search: [example.com]}
+  bridges:
+    br0:
+      interfaces: [vlan10]
+      parameters: {stp: false, forward-delay: 0}
+      addresses: [192.168.10.1/24]
+      routes: [{to: 198.51.100.0/24, via: 192.168.10.254, metric: 50}]
+  vlans:
+    vlan10:
+      id: 10
+      link: nic2

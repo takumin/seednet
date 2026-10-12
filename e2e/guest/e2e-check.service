@@ -1,0 +1,11 @@
+# Starts the check apart from the boot, which it waits for, so that it runs whether or not
+# cloud-init has a datasource.
+[Unit]
+Description=seednet end-to-end check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemd-run --no-block --collect --unit=e2e-check-run /usr/local/bin/e2e-check
+
+[Install]
+WantedBy=multi-user.target
