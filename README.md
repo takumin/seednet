@@ -31,7 +31,8 @@ The config comes from the first of these that is there:
 | `seednet.url=` on the kernel command line | yes | |
 | The `network-config` on the CIDATA disk | yes | yes |
 
-Without any, it writes nothing and leaves the network alone. When the rootfs is on the network (NFS,
+Without any, it writes nothing and leaves the network alone, as it does with a config that
+configures no interface, such as an empty or disabled (`config: disabled`) one. When the rootfs is on the network (NFS,
 CIFS, NBD or iSCSI), the rootfs keeps the network of the initrd and ignores
 `/etc/seednet/network-config`, since changing the network could cut the rootfs off.
 

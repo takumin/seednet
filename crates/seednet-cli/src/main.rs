@@ -162,6 +162,17 @@ fn apply(options: &source::Options, output: &output::Output) -> Result<bool> {
 
     let conversion = seednet::convert(&text)
         .with_context(|| format!("failed to convert the network-config from {source}"))?;
+    // An empty or disabled config says nothing of the network, as cloud-init takes it, and taking
+    // the network over for it would leave none.
+    if conversion.networks.is_empty() {
+        for warning in &conversion.warnings {
+            warn(warning);
+        }
+        info(&format!(
+            "the network-config from {source} configures no interface, so the network is left alone"
+        ));
+        return Ok(false);
+    }
     output.write_networks(&conversion)?;
     output.save(&text, &source)?;
     Ok(true)

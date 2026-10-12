@@ -412,6 +412,29 @@ fn network_manager_keeps_its_own_profile_of_a_uuid() {
 }
 
 #[test]
+fn a_config_of_no_interface_leaves_the_network_alone() {
+    for config in ["", "network: {config: disabled}\n", "version: 2\n"] {
+        let sysroot = Sysroot::new("ro");
+        sysroot.write("cidata/network-config", config);
+        let cidata = sysroot.path("cidata");
+
+        let output = sysroot.seednet(&[
+            "apply",
+            "--stage",
+            "initrd",
+            "--takeover",
+            "--cidata-dir",
+            cidata.to_str().unwrap(),
+        ]);
+        assert_success(&output);
+        assert!(stderr(&output).contains("configures no interface"), "{config:?}");
+        assert!(!stderr(&output).contains("took over"), "{config:?}");
+        assert!(!sysroot.path("run/seednet").exists(), "{config:?}");
+        assert!(!sysroot.path("run/NetworkManager").exists(), "{config:?}");
+    }
+}
+
+#[test]
 fn takeover_only_with_a_config() {
     let sysroot = Sysroot::new("ro");
     let cidata = sysroot.path("cidata");
