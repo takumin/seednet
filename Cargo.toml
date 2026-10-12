@@ -14,7 +14,16 @@ homepage = "https://github.com/takumin/seednet"
 repository = "https://github.com/takumin/seednet"
 
 [workspace.dependencies]
+# The version keeps cargo-deny from taking the path dependency for a wildcard.
+seednet = { path = "crates/seednet", version = "0.1.0" }
 anyhow = "1.0.104"
+clap = { version = "4.6.7", default-features = false, features = [
+  "std",
+  "derive",
+  "help",
+  "usage",
+  "error-context",
+] }
 serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"
 base64 = "0.23.1"
@@ -22,6 +31,18 @@ flate2 = "1.1.10"
 md-5 = "0.11.0"
 sha1 = "0.11.0"
 sha2 = "0.11.0"
+# ring rather than aws-lc-rs, which needs cmake and a C toolchain for every target. The roots come
+# from the system CA bundle only, so no webpki-roots.
+ureq = { version = "3.4.2", default-features = false, features = [
+  "rustls-no-provider",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+  "ring",
+  "std",
+  "tls12",
+] }
+rustix = { version = "1.1.5", features = ["mount", "fs"] }
+tempfile = "3.27.0"
 
 # The binary goes into an initrd, so keep it small.
 [profile.release]
