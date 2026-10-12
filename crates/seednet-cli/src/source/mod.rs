@@ -89,7 +89,7 @@ pub fn find(options: &Options, params: &Params) -> Result<Option<(String, String
                     sysroot,
                     options.ca_file.as_deref(),
                 )?;
-                return Ok(Some((text, url.clone())));
+                return Ok(Some((text, fetch::redact(url))));
             }
         }
     }

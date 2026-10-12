@@ -70,7 +70,8 @@ disk says. Seednet itself never writes to `/etc`.
   wins over every other source, and warns when it overrides `/etc/seednet/network-config` or a
   CIDATA disk.
 - `seednet.url=<URL>`: an `http` or `https` URL to fetch the config from, over a network the initrd
-  brought up for it. A fetch that does not succeed fails, and so fails the boot.
+  brought up for it. A fetch that does not succeed fails, and so fails the boot. An `https` URL
+  follows no redirect to `http`.
 - `seednet.checksum=<ALGORITHM>:<HEX>`: what the fetched config must hash to, with `md5`, `sha1`,
   `sha256` or `sha512`. Prefer `sha256` or `sha512`.
 - `seednet.url-timeout=<SECONDS>`: how long to keep trying to fetch the config while the network

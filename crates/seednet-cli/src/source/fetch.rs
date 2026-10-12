@@ -36,27 +36,37 @@ pub fn fetch(
     ca_file: Option<&Path>,
 ) -> Result<String> {
     let agent = agent(url, sysroot, ca_file)?;
-    let deadline = Instant::now() + timeout;
+    // The URL may carry a secret, which the console and the journal must not.
+    let shown = redact(url);
+    // A timeout too long for the clock is no deadline at all.
+    let deadline = Instant::now().checked_add(timeout);
     let mut last_message = String::new();
 
     let body = loop {
-        match get(&agent, url) {
+        // An attempt takes no longer than the time left, so the fetch ends by the deadline.
+        let attempt_timeout = deadline.map_or(ATTEMPT_TIMEOUT, |deadline| {
+            ATTEMPT_TIMEOUT
+                .min(deadline.saturating_duration_since(Instant::now()))
+                .max(RETRY_INTERVAL)
+        });
+        let time_left = deadline.is_none_or(|deadline| Instant::now() + RETRY_INTERVAL < deadline);
+        match get(&agent, url, attempt_timeout) {
             Ok(body) => break body,
-            Err(error) if is_transient(&error) && Instant::now() + RETRY_INTERVAL < deadline => {
+            Err(error) if is_transient(&error) && time_left => {
                 // Say it once, not every second, unless the failure changes.
                 let message = error.to_string();
                 if message != last_message {
-                    crate::info(&format!("failed to fetch {url}, trying again: {message}"));
+                    crate::info(&format!("failed to fetch {shown}, trying again: {message}"));
                     last_message = message;
                 }
                 thread::sleep(RETRY_INTERVAL);
             }
             Err(error) if is_transient(&error) => {
                 return Err(anyhow::Error::new(error)
-                    .context(format!("failed to fetch {url} within {}s", timeout.as_secs())));
+                    .context(format!("failed to fetch {shown} within {}s", timeout.as_secs())));
             }
             Err(error) => {
-                return Err(anyhow::Error::new(error).context(format!("failed to fetch {url}")));
+                return Err(anyhow::Error::new(error).context(format!("failed to fetch {shown}")));
             }
         }
     };
@@ -64,15 +74,37 @@ pub fn fetch(
     if let Some(checksum) = checksum {
         checksum
             .verify(&body)
-            .with_context(|| format!("the config from {url} is not the expected one"))?;
+            .with_context(|| format!("the config from {shown} is not the expected one"))?;
     }
 
-    String::from_utf8(body).with_context(|| format!("the config from {url} is not UTF-8"))
+    String::from_utf8(body).with_context(|| format!("the config from {shown} is not UTF-8"))
 }
 
-fn get(agent: &ureq::Agent, url: &str) -> Result<Vec<u8>, ureq::Error> {
+/// The URL with the user and password, and the query, which may hold a token, left out.
+pub fn redact(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let (authority, rest) = rest.split_at(end);
+    let host = match authority.rsplit_once('@') {
+        Some((_, host)) => format!("***@{host}"),
+        None => authority.to_owned(),
+    };
+    let path = rest.split('#').next().unwrap_or_default();
+    let path = match path.split_once('?') {
+        Some((path, _)) => format!("{path}?***"),
+        None => path.to_owned(),
+    };
+    format!("{scheme}://{host}{path}")
+}
+
+fn get(agent: &ureq::Agent, url: &str, timeout: Duration) -> Result<Vec<u8>, ureq::Error> {
     agent
         .get(url)
+        .config()
+        .timeout_global(Some(timeout))
+        .build()
         .call()?
         .body_mut()
         .with_config()
@@ -119,12 +151,16 @@ fn is_transient(error: &ureq::Error) -> bool {
 
 fn agent(url: &str, sysroot: &Path, ca_file: Option<&Path>) -> Result<ureq::Agent> {
     let mut config = ureq::Agent::config_builder()
-        .timeout_global(Some(ATTEMPT_TIMEOUT))
         // The config should come straight from where the admin pointed, not from a proxy that the
         // environment of the initrd happens to name.
         .proxy(None);
 
-    if url.starts_with("https://") {
+    let scheme = url
+        .split_once("://")
+        .map(|(scheme, _)| scheme.to_ascii_lowercase());
+    if scheme.as_deref() == Some("https") {
+        // A redirect to plain http would hand over a config that no certificate vouches for.
+        config = config.https_only(true);
         let ca_file = match ca_file {
             Some(ca_file) => ca_file.to_owned(),
             None => system_ca_bundle(sysroot)?,
@@ -138,8 +174,8 @@ fn agent(url: &str, sysroot: &Path, ca_file: Option<&Path>) -> Result<ureq::Agen
                 .root_certs(RootCerts::Specific(Arc::new(load_certs(&ca_file)?)))
                 .build(),
         );
-    } else if !url.starts_with("http://") {
-        bail!("seednet.url is neither http:// nor https://: {url}");
+    } else if scheme.as_deref() != Some("http") {
+        bail!("seednet.url is neither http:// nor https://: {}", redact(url));
     }
 
     Ok(config.build().new_agent())
@@ -185,4 +221,27 @@ mod tests {
         let error = std::io::Error::other("invalid certificate");
         assert!(!is_transient(&ureq::Error::Io(error)));
     }
+
+    #[test]
+    fn leaves_the_secrets_of_a_url_out() {
+        assert_eq!(redact("http://a/b"), "http://a/b");
+        assert_eq!(redact("https://u:p@a:8443/b?sig=x#f"), "https://***@a:8443/b?***");
+        assert_eq!(redact("http://u@a?t=1"), "http://***@a?***");
+    }
+
+    #[test]
+    fn an_https_url_follows_no_redirect_to_http() {
+        let dir = tempfile::tempdir().unwrap();
+        let ca_file = dir.path().join("ca.pem");
+        fs::write(&ca_file, TEST_CA).unwrap();
+
+        let https = agent("HTTPS://example.com/", dir.path(), Some(&ca_file)).unwrap();
+        assert!(https.config().https_only());
+        let http = agent("Http://example.com/", dir.path(), None).unwrap();
+        assert!(!http.config().https_only());
+        assert!(agent("ftp://example.com/", dir.path(), None).is_err());
+    }
+
+    /// A self-signed certificate, which is only parsed here.
+    const TEST_CA: &str = include_str!("../../tests/fixtures/test-ca.pem");
 }

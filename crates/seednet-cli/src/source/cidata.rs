@@ -31,12 +31,13 @@ pub fn present(sysroot: &Path) -> bool {
 /// Waits up to `timeout` for the disk, and reads its network-config. Neither the disk nor the file
 /// being there is an error, nor a disk that mounts as neither vfat nor iso9660.
 pub fn read(sysroot: &Path, timeout: Duration) -> Result<Option<String>> {
-    let deadline = Instant::now() + timeout;
+    // A timeout too long for the clock is no deadline at all.
+    let deadline = Instant::now().checked_add(timeout);
     let device = loop {
         if let Some(device) = device(sysroot) {
             break device;
         }
-        if Instant::now() >= deadline {
+        if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Ok(None);
         }
         thread::sleep(POLL_INTERVAL);

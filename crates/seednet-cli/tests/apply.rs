@@ -560,6 +560,18 @@ fn convert_writes_one_config() {
 }
 
 #[test]
+fn a_timeout_too_long_for_the_clock_waits_without_end() {
+    let url = serve(CONFIG, 1);
+    let sysroot = Sysroot::new(&format!(
+        "seednet.url={url} seednet.url-timeout=18446744073709551615 \
+        rd.seednet.timeout=18446744073709551615"
+    ));
+
+    assert_success(&sysroot.apply("initrd"));
+    assert_eq!(sysroot.networks(), ["10-seednet-eth0.network"]);
+}
+
+#[test]
 fn a_cidata_disk_that_does_not_mount_is_skipped() {
     let sysroot = Sysroot::new("ro");
     // Not a block device, so it mounts as neither vfat nor iso9660.
