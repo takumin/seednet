@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use seednet::network::HEADER;
 
+use crate::output;
+
 /// The profiles that NetworkManager keeps, as when one of seednet was changed in its GUI or with
 /// nmcli and so moved from /run.
 const ETC_DIR: &str = "etc/NetworkManager/system-connections";
@@ -114,22 +116,27 @@ pub fn take_over(sysroot: &Path, backend: seednet::Backend) -> Result<()> {
 }
 
 fn write_conf(sysroot: &Path) -> Result<()> {
-    write(
-        &sysroot.join(CONF),
-        &format!(
-            "{}
+    let mut conf = format!(
+        "{}
 # No connection for an interface that seednet did not configure.
 [main]
 no-auto-default=*
-
+",
+        HEADER.trim_end()
+    );
+    // Over a rootfs on the network, the configuration of the initrd stays as it is, for
+    // NetworkManager to take it over without taking the interface down.
+    if !sysroot.join(output::NETWORK_ROOTFS).exists() {
+        conf.push_str(
+            "
 # Bring up the connections of seednet on an interface that the initrd already configured, rather
 # than take its configuration for an external connection and leave it as it is.
 [device-seednet]
 keep-configuration=no
 ",
-            HEADER.trim_end()
-        ),
-    )
+        );
+    }
+    write(&sysroot.join(CONF), &conf)
 }
 
 /// Hides the config of Ubuntu that leaves the interfaces of seednet unmanaged, as netplan does with
@@ -158,6 +165,24 @@ fn remove_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keeps_the_configuration_of_the_initrd_under_a_network_rootfs() {
+        let dir = tempfile::tempdir().unwrap();
+        let sysroot = dir.path();
+        write_conf(sysroot).unwrap();
+        assert!(
+            fs::read_to_string(sysroot.join(CONF))
+                .unwrap()
+                .contains("keep-configuration=no")
+        );
+
+        write(&sysroot.join(output::NETWORK_ROOTFS), "").unwrap();
+        write_conf(sysroot).unwrap();
+        let conf = fs::read_to_string(sysroot.join(CONF)).unwrap();
+        assert!(conf.contains("no-auto-default=*"));
+        assert!(!conf.contains("keep-configuration"));
+    }
 
     #[test]
     fn keeps_the_uuids_of_both_places_in_etc() {

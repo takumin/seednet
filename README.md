@@ -57,9 +57,10 @@ disk says. Seednet itself never writes to `/etc`.
   for this boot: it removes what the netplan generator wrote, but for the connections that
   NetworkManager keeps in `/etc/netplan` on Ubuntu (see `--backend`), and in the rootfs masks the
   generator (`/run/systemd/system-generators/netplan`); it tells NetworkManager to make no
-  connection of its own and to bring up its connections on an interface the initrd configured
-  (`/run/NetworkManager/conf.d/10-seednet.conf`); and, in the rootfs, it sets
-  `network: {config: disabled}` in the runtime config of cloud-init (`/run/cloud-init/cloud.cfg`).
+  connection of its own and, unless the rootfs is on the network, to bring up its connections on an
+  interface the initrd configured (`/run/NetworkManager/conf.d/10-seednet.conf`); and, in the
+  rootfs, it sets `network: {config: disabled}` in the runtime config of cloud-init
+  (`/run/cloud-init/cloud.cfg`).
   It also removes the DHCP connection that an initrd with NetworkManager makes when nothing says
   how the network is. With `network-manager`, it also hides the config of Ubuntu that leaves all
   but Wi-Fi and modems unmanaged (`/usr/lib/NetworkManager/conf.d/10-globally-managed-devices.conf`),
