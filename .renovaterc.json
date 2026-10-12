@@ -22,6 +22,20 @@
 	],
 	"packageRules": [
 		{
+			"description": "Keep the releases of the end-to-end guests, such as Rocky Linux 9 and 10 apart, and take only their digests and minor updates",
+			"matchFileNames": ["e2e/Containerfile.*"],
+			"matchDatasources": ["docker"],
+			"matchUpdateTypes": ["major"],
+			"enabled": false
+		},
+		{
+			"description": "Keep the Ubuntu guest on a long-term support release, not one of the releases in between",
+			"matchFileNames": ["e2e/Containerfile.*"],
+			"matchDatasources": ["docker"],
+			"matchDepNames": ["docker.io/library/ubuntu", "ubuntu"],
+			"allowedVersions": "/^\\d+\\.04$/"
+		},
+		{
 			"description": "Update the toolchain pin and the MSRV in one PR",
 			"matchDatasources": ["rust-version"],
 			"matchDepNames": ["rust"],
