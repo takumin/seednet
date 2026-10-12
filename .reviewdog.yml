@@ -10,6 +10,9 @@ runner:
   jactionlint:
     cmd: jactionlint --shellcheck shellcheck --format sarif
     format: sarif
+  shellcheck:
+    cmd: shellcheck -x -f checkstyle contrib/dracut/95seednet/*.sh contrib/systemd/seednet-rootfs e2e/*.sh e2e/guest/*.sh
+    format: checkstyle
   ghalint-run:
     cmd: ghalint --log-color never run
     errorformat:

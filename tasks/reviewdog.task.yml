@@ -28,6 +28,7 @@ tasks:
     cmds:
     - task: editorconfig-checker
     - task: jactionlint
+    - task: shellcheck
     - task: ghalint-run
     - task: ghalint-act
     - task: zizmor
@@ -82,6 +83,22 @@ tasks:
     sources:
     - '.github/**/*.yml'
     - '.github/**/*.yaml'
+    generates:
+    - .task/.done_{{.TASK}}
+    cmds:
+    - task: reviewdog
+      vars:
+        REVIEWDOG_RUNNER: '{{splitList ":" .TASK | last}}'
+    - cmd: touch .task/.done_{{.TASK}}
+      silent: true
+
+  shellcheck:
+    desc: '{{.TASK}}'
+    deps:
+    - task: tool:aqua:tag:shellcheck
+    sources:
+    - 'contrib/**/*'
+    - 'e2e/**/*.sh'
     generates:
     - .task/.done_{{.TASK}}
     cmds:
