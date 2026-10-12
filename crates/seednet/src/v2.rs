@@ -239,7 +239,7 @@ pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>>
     }
     for (id, bond) in config.bonds {
         let parameters = pairs(bond.parameters.as_ref());
-        let kind = Kind::Bond(params::bond(&id, &parameters, warnings)?);
+        let kind = Kind::Bond(Box::new(params::bond(&id, &parameters, warnings)?));
         ports.push((id.clone(), bond.interfaces, None));
         networks.push(network(id, kind, bond.macaddress, bond.common, warnings)?);
     }

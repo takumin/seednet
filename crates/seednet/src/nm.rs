@@ -159,6 +159,21 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
             }
             set("fail_over_mac", bond.fail_over_mac_policy.clone());
             set("min_links", bond.min_links.map(|n| n.to_string()));
+            set(
+                "all_slaves_active",
+                bond.all_members_active
+                    .filter(|on| *on)
+                    .map(|_| "1".to_owned()),
+            );
+            set("arp_validate", bond.arp_validate.clone());
+            set("arp_all_targets", bond.arp_all_targets.clone());
+            // As netplan writes it, since NetworkManager would take num_unsol_na over it otherwise.
+            set("num_grat_arp", bond.gratuitous_arp.map(|n| n.to_string()));
+            set("num_unsol_na", bond.gratuitous_arp.map(|n| n.to_string()));
+            set("packets_per_slave", bond.packets_per_member.map(|n| n.to_string()));
+            set("primary_reselect", bond.primary_reselect_policy.clone());
+            set("resend_igmp", bond.resend_igmp.map(|n| n.to_string()));
+            set("lp_interval", bond.learn_packet_interval.map(|s| s.to_string()));
             if let Some(primary) = &bond.primary {
                 match find(primary).and_then(Network::ifname) {
                     Some(ifname) => set("primary", Some(ifname.to_owned())),

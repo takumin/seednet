@@ -250,12 +250,14 @@ are added to that interface, and a `type: route` goes to the interface whose sub
 gateway.
 
 The bond parameters are `mode`, `lacp-rate`, `mii-monitor-interval`, `up-delay`, `down-delay`,
-`transmit-hash-policy`, `ad-select`, `arp-interval`, `arp-ip-targets`, `fail-over-mac-policy`,
-`min-links` and `primary`, and the bridge parameters `stp`, `forward-delay`, `hello-time`,
+`transmit-hash-policy`, `ad-select`, `arp-interval`, `arp-ip-targets`, `arp-validate`,
+`arp-all-targets`, `fail-over-mac-policy`, `min-links`, `primary`, `primary-reselect-policy`,
+`all-members-active`, `gratuitous-arp`, `packets-per-member`, `resend-igmp` and
+`learn-packet-interval`, and the bridge parameters `stp`, `forward-delay`, `hello-time`,
 `max-age`, `ageing-time`, `priority`, `path-cost` and `port-priority`, with their version 1
 spellings (`bond-miimon`, `bridge_fd` and so on). `mode`, `lacp-rate`, `transmit-hash-policy`,
-`ad-select` and `fail-over-mac-policy` take only the names that both systemd-networkd and
-NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
+`ad-select`, `arp-validate`, `arp-all-targets`, `primary-reselect-policy` and
+`fail-over-mac-policy` take only the names that both systemd-networkd and NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
 that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space. A bridge with `parameters`,
 even empty ones, has STP on unless they say `stp: false`, as netplan has it, and a VLAN ID is 0 to
 4094.

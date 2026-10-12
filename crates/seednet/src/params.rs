@@ -40,6 +40,13 @@ pub fn v1_bond_key(key: &str) -> String {
         "bond-fail-over-mac" => "fail-over-mac-policy",
         "bond-min-links" => "min-links",
         "bond-primary" => "primary",
+        "bond-all-slaves-active" => "all-members-active",
+        "bond-arp-validate" => "arp-validate",
+        "bond-arp-all-targets" => "arp-all-targets",
+        "bond-num-grat-arp" => "gratuitous-arp",
+        "bond-packets-per-slave" => "packets-per-member",
+        "bond-primary-reselect" => "primary-reselect-policy",
+        "bond-learn-packet-interval" => "learn-packet-interval",
         _ => key,
     };
     name.to_owned()
@@ -82,6 +89,17 @@ const TRANSMIT_HASH_POLICIES: &[&str] = &[
     "vlan+srcmac",
 ];
 
+/// The values of `arp-validate` that the kernel takes, as both networkd and NetworkManager do.
+const ARP_VALIDATE: &[&str] = &[
+    "none",
+    "active",
+    "backup",
+    "all",
+    "filter",
+    "filter_active",
+    "filter_backup",
+];
+
 /// Reads the bond parameters of `id`, and warns about the ones it does not take.
 pub fn bond(id: &str, params: &[(&str, &Value)], warnings: &mut Vec<String>) -> Result<Bond> {
     let mut bond = Bond::default();
@@ -118,6 +136,31 @@ pub fn bond(id: &str, params: &[(&str, &Value)], warnings: &mut Vec<String>) -> 
             }
             "min-links" => bond.min_links = Some(number(value).with_context(context)?),
             "primary" => bond.primary = Some(string(value).with_context(context)?),
+            "all-members-active" | "all-slaves-active" => {
+                bond.all_members_active = Some(boolean(value).with_context(context)?);
+            }
+            "arp-validate" => {
+                bond.arp_validate = Some(one_of(value, ARP_VALIDATE).with_context(context)?);
+            }
+            "arp-all-targets" => {
+                bond.arp_all_targets = Some(one_of(value, &["any", "all"]).with_context(context)?);
+            }
+            "gratuitous-arp" | "gratuitious-arp" => {
+                bond.gratuitous_arp = Some(in_range(value, 1, 255).with_context(context)?);
+            }
+            "packets-per-member" | "packets-per-slave" => {
+                bond.packets_per_member = Some(in_range(value, 0, 65535).with_context(context)?);
+            }
+            "primary-reselect-policy" => {
+                bond.primary_reselect_policy =
+                    Some(one_of(value, &["always", "better", "failure"]).with_context(context)?);
+            }
+            "resend-igmp" => {
+                bond.resend_igmp = Some(in_range(value, 0, 255).with_context(context)?)
+            }
+            "learn-packet-interval" => {
+                bond.learn_packet_interval = Some(seconds(value).with_context(context)?);
+            }
             _ => warnings.push(format!("skipping the unsupported bond parameter {key} of {id}")),
         }
     }
@@ -184,6 +227,15 @@ fn one_of(value: &Value, allowed: &[&str]) -> Result<String> {
         bail!("{s} is not one of {}", allowed.join(", "));
     }
     Ok(s)
+}
+
+/// A number from `min` to `max`, as the kernel takes it.
+fn in_range(value: &Value, min: u32, max: u32) -> Result<u32> {
+    let n = number(value)?;
+    if !(min..=max).contains(&n) {
+        bail!("{n} is not {min} to {max}");
+    }
+    Ok(n)
 }
 
 fn number(value: &Value) -> Result<u32> {

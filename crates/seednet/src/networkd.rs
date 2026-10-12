@@ -117,6 +117,20 @@ fn netdev(network: &Network) -> Option<String> {
             set("ARPIPTargets", (!targets.is_empty()).then(|| targets.join(" ")));
             set("FailOverMACPolicy", bond.fail_over_mac_policy.clone());
             set("MinLinks", bond.min_links.map(|n| n.to_string()));
+            // netplan writes it only when it is on, which is not the default.
+            set(
+                "AllSlavesActive",
+                bond.all_members_active
+                    .filter(|on| *on)
+                    .map(|_| "1".to_owned()),
+            );
+            set("ARPValidate", bond.arp_validate.clone());
+            set("ARPAllTargets", bond.arp_all_targets.clone());
+            set("GratuitousARP", bond.gratuitous_arp.map(|n| n.to_string()));
+            set("PacketsPerSlave", bond.packets_per_member.map(|n| n.to_string()));
+            set("PrimaryReselectPolicy", bond.primary_reselect_policy.clone());
+            set("ResendIGMP", bond.resend_igmp.map(|n| n.to_string()));
+            set("LearnPacketIntervalSec", bond.learn_packet_interval.map(|s| s.to_string()));
             if !section.is_empty() {
                 let _ = write!(out, "\n[Bond]\n{section}");
             }

@@ -303,7 +303,7 @@ fn controller_network(
         let bond = params::bond(&id, &pairs, warnings)?;
         let network = Network {
             id,
-            kind: Kind::Bond(bond),
+            kind: Kind::Bond(Box::new(bond)),
             ..Default::default()
         };
         Ok((network, None))

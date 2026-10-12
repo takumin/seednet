@@ -221,14 +221,14 @@ fn empty_and_disabled_configs_convert_to_nothing() {
 fn skipped_parts_are_returned_as_warnings() {
     let conversion = convert(
         "version: 2\nwifis: {wl0: {}}\nbonds:\n  bond0:\n    parameters: {mode: balance-rr, \
-        gratuitous-arp: 1}\n",
+        tlb-dynamic-lb: 1}\n",
     )
     .unwrap();
     assert_eq!(
         conversion.warnings,
         [
             "skipping the unsupported type: wifis",
-            "skipping the unsupported bond parameter gratuitous-arp of bond0"
+            "skipping the unsupported bond parameter tlb-dynamic-lb of bond0"
         ]
     );
 
@@ -916,6 +916,12 @@ fn device_route_and_bond_keys() {
         "10-seednet-eth0.network",
         "Destination=203.0.113.128/25\nScope=host\nType=nat\n",
     );
+    has(
+        "10-seednet-bond0.netdev",
+        "AllSlavesActive=1\nARPValidate=all\nARPAllTargets=all\nGratuitousARP=3\n\
+        PrimaryReselectPolicy=better\nResendIGMP=2\nLearnPacketIntervalSec=5\n",
+    );
+    has("10-seednet-bond1.netdev", "PacketsPerSlave=4\n");
 
     let (nm, warnings) = render_nm(config);
     let has = |i: usize, part: &str| assert!(nm[i].contains(part), "{part}\n{}", nm[i]);
@@ -924,12 +930,33 @@ fn device_route_and_bond_keys() {
         "route1_options=src=192.0.2.10,mtu=1400,initcwnd=10,initrwnd=20,advmss=1300\n",
     );
     has(0, "route2=203.0.113.0/24\nroute2_options=type=blackhole\n");
+    has(
+        3,
+        "all_slaves_active=1\narp_validate=all\narp_all_targets=all\nnum_grat_arp=3\n\
+        num_unsol_na=3\nprimary_reselect=better\nresend_igmp=2\nlp_interval=5\n",
+    );
     for warning in [
         "skipping the nat route to 203.0.113.128/25 of eth0",
         "skipping the scope host of the route to 192.0.2.128/25 of eth0",
     ] {
         assert!(warnings.iter().any(|w| w.starts_with(warning)), "{warning}: {warnings:?}");
     }
+
+    // Version 1 takes them as cloud-init does.
+    let v1 = "version: 1
+config:
+    - {type: physical, name: eth0}
+    -   type: bond
+        name: bond0
+        bond_interfaces: [eth0]
+        params: {bond-arp-validate: active, bond-num-grat-arp: 2, bond-primary-reselect: always}
+";
+    let networkd: std::collections::HashMap<_, _> =
+        files(v1, Backend::Networkd).into_iter().collect();
+    assert!(
+        networkd["10-seednet-bond0.netdev"]
+            .contains("ARPValidate=active\nGratuitousARP=2\nPrimaryReselectPolicy=always\n")
+    );
 
     for invalid in [
         "    routes: [{to: 198.51.100.0/24, scope: global}]\n",
@@ -939,6 +966,11 @@ fn device_route_and_bond_keys() {
         let config = format!("version: 2\nethernets:\n  eth0:\n{invalid}");
         assert!(convert(&config).is_err(), "{invalid}");
     }
+    let bond = |parameters: &str| {
+        convert(&format!("version: 2\nbonds: {{bond0: {{parameters: {parameters}}}}}\n"))
+    };
+    assert!(bond("{arp-validate: some}").is_err());
+    assert!(bond("{gratuitous-arp: 0}").is_err());
 }
 
 #[test]

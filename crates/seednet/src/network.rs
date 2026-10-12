@@ -123,7 +123,7 @@ impl RoutingRule {
 pub enum Kind {
     #[default]
     Ethernet,
-    Bond(Bond),
+    Bond(Box<Bond>),
     Bridge(Bridge),
     Vlan {
         id: u16,
@@ -149,6 +149,15 @@ pub struct Bond {
     pub min_links: Option<u32>,
     /// The ID of the preferred port.
     pub primary: Option<String>,
+    pub all_members_active: Option<bool>,
+    pub arp_validate: Option<String>,
+    pub arp_all_targets: Option<String>,
+    pub gratuitous_arp: Option<u32>,
+    pub packets_per_member: Option<u32>,
+    pub primary_reselect_policy: Option<String>,
+    pub resend_igmp: Option<u32>,
+    /// In seconds.
+    pub learn_packet_interval: Option<u32>,
 }
 
 /// The bridge parameters. Times are in seconds.
@@ -459,7 +468,7 @@ mod tests {
         assert_eq!(named("en*", Some("lan")).ifname(), Some("lan"));
         let bond = Network {
             id: "bond0".into(),
-            kind: Kind::Bond(Bond::default()),
+            kind: Kind::Bond(Box::default()),
             ..Default::default()
         };
         assert_eq!(bond.ifname(), Some("bond0"));
