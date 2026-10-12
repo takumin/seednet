@@ -367,6 +367,15 @@ of available memory for), and the scenarios of each in turn; the output of each 
 only, and `task e2e:run DISTRO=debian INITRD=nm BACKEND=networkd SCENARIO=live` one scenario, with
 `INITRD` and `BACKEND` the backends of the initrd and of the rootfs.
 
+The images are built for the architecture of the host, whatever base image of another the storage
+of podman has. `E2E_MIRROR_DEBIAN`, `E2E_MIRROR_UBUNTU`, `E2E_MIRROR_FEDORA`, `E2E_MIRROR_EL9`
+and `E2E_MIRROR_EL10` name a mirror for the packages of each distro, in place of the default one or
+the mirror list: the URL of the archive for Debian and Ubuntu, such as
+`http://ftp.jp.debian.org/debian`, and of the directory of the releases for Fedora and Enterprise
+Linux, such as `https://ftp.riken.jp/Linux/fedora`. The security updates of Debian and Ubuntu stay
+where they are. The mirror of Debian and Ubuntu is `http`, since their base images have no CA
+certificates, and apt checks the signatures of the archive.
+
 | Distro | Initrd, rootfs | Guest |
 |---|---|---|
 | `debian` | `networkd` or `nm`, each with `networkd` or `nm` | Debian trixie, with netplan when the rootfs has `networkd`. |

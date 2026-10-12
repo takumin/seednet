@@ -11,6 +11,14 @@ FROM ${DISTRO}
 ARG INITRD=networkd
 ARG BACKEND=networkd
 
+# A mirror of the archive, as e2e/run.sh takes it from E2E_MIRROR_<DISTRO>, in place of
+# deb.debian.org or of archive.ubuntu.com or ports.ubuntu.com. The security updates stay where they
+# are.
+ARG MIRROR=
+RUN [ -n "$MIRROR" ] || exit 0 \
+  && sed -i -E "s#^URIs: http://(deb\.debian\.org/debian|archive\.ubuntu\.com/ubuntu/?|ports\.ubuntu\.com/ubuntu-ports/?)\$#URIs: $MIRROR#" \
+    /etc/apt/sources.list.d/*.sources
+
 # dbus comes with NetworkManager, and networkctl needs it to reload systemd-networkd. The initrd
 # resolves host names with systemd-resolved, or with NetworkManager. Ubuntu has netplan whichever
 # brings up the network, as it does by default. The live rootfs needs dmsetup, which Ubuntu does not

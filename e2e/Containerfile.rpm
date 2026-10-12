@@ -12,6 +12,21 @@ FROM ${DISTRO}
 
 ARG BACKEND=networkd
 
+# A mirror in place of the mirror list, as e2e/run.sh takes it from E2E_MIRROR_<DISTRO>: where the
+# repositories of the distribution are, in place of the URL of the commented baseurl lines.
+ARG MIRROR=
+RUN . /etc/os-release \
+  && [ -n "$MIRROR" ] || exit 0 \
+  && case $ID in \
+    fedora) default=http://download.example/pub/fedora/linux ;; \
+    rocky) default='http://dl.rockylinux.org/\$contentdir' ;; \
+    almalinux) default=https://repo.almalinux.org/almalinux ;; \
+  esac \
+  && for repo in /etc/yum.repos.d/*.repo; do \
+    grep -q "^# *baseurl=$default/" "$repo" || continue; \
+    sed -i -E -e 's/^(metalink|mirrorlist)=/#&/' -e "s|^# *baseurl=$default/|baseurl=${MIRROR%/}/|" "$repo"; \
+  done
+
 # The live rootfs needs squashfs, which Enterprise Linux 10 has in kernel-modules only. curl is
 # curl-minimal on Enterprise Linux 9, which the full one conflicts with.
 # networkctl edit needs a terminal from script, which Fedora has apart from util-linux, and D-Bus.

@@ -33,6 +33,12 @@
 # mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout, sha256sum, openssl and
 # python3, and the release build of seednet for <arch>-unknown-linux-musl. The work goes in
 # target/e2e.
+#
+# E2E_MIRROR_DEBIAN, E2E_MIRROR_UBUNTU, E2E_MIRROR_FEDORA, E2E_MIRROR_EL9 and E2E_MIRROR_EL10 name a
+# mirror for the packages of the image of each distro, in place of the default one or the mirror
+# list: the URL of the archive for Debian and Ubuntu, as http://ftp.jp.debian.org/debian, over http
+# since their base images have no CA certificates, and of the directory of the releases for Fedora
+# and Enterprise Linux, as https://ftp.riken.jp/Linux/fedora.
 set -eu
 
 distro=${1:?distro: debian, ubuntu, fedora, el9 or el10}
@@ -41,7 +47,11 @@ backend=${3:?rootfs: networkd or nm}
 scenario=${4:?scenario: disk, neednet, cmdline, url, live, edit, https or badsum}
 case $distro in debian | ubuntu | fedora | el9 | el10) ;; *) echo "unknown distro: $distro" >&2 && exit 2 ;; esac
 arch=$(uname -m)
-case $arch in x86_64 | aarch64) ;; *) echo "unsupported architecture: $arch" >&2 && exit 2 ;; esac
+case $arch in
+	x86_64) platform=linux/amd64 ;;
+	aarch64) platform=linux/arm64 ;;
+	*) echo "unsupported architecture: $arch" >&2 && exit 2 ;;
+esac
 for b in "$initrd" "$backend"; do
 	case $b in networkd | nm) ;; *) echo "unknown backend: $b" >&2 && exit 2 ;; esac
 done
@@ -102,8 +112,18 @@ case $distro in
 	debian | ubuntu) build="-f $repo/e2e/Containerfile.deb --build-arg INITRD=$initrd" ;;
 	*) build="-f $repo/e2e/Containerfile.rpm" ;;
 esac
+case $distro in
+	debian) mirror=${E2E_MIRROR_DEBIAN:-} ;;
+	ubuntu) mirror=${E2E_MIRROR_UBUNTU:-} ;;
+	fedora) mirror=${E2E_MIRROR_FEDORA:-} ;;
+	el9) mirror=${E2E_MIRROR_EL9:-} ;;
+	el10) mirror=${E2E_MIRROR_EL10:-} ;;
+esac
+# The platform of the host, for a base image of another architecture that the storage of podman may
+# have under the same name, which the build would otherwise take and run emulated.
 # shellcheck disable=SC2086
-podman build -q $build --build-arg "DISTRO=$distro" --build-arg "BACKEND=$backend" \
+podman build -q --platform "$platform" $build --build-arg "DISTRO=$distro" --build-arg "BACKEND=$backend" \
+	--build-arg "MIRROR=$mirror" \
 	--build-arg "SEEDNET=target/$arch-unknown-linux-musl/release/seednet" \
 	--build-context "tls=$tls" -t "localhost/seednet-e2e-$guest" "$repo" > image.id.new
 if ! cmp -s image.id.new image.id || [ ! -e rootfs.img ] || [ ! -e rootfs.squashfs ]; then
