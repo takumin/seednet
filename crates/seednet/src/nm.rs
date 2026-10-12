@@ -131,7 +131,16 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
                 .iter()
                 .map(ToString::to_string)
                 .collect();
-            set("arp_ip_target", (!targets.is_empty()).then(|| targets.join(",")));
+            // NetworkManager takes no targets without the interval, which the kernel ignores then.
+            if !targets.is_empty() && bond.arp_interval.unwrap_or(0) == 0 {
+                warnings.push(format!(
+                    "skipping the arp-ip-targets of {}, without arp-interval, which NetworkManager \
+                    does not take",
+                    network.id
+                ));
+            } else {
+                set("arp_ip_target", (!targets.is_empty()).then(|| targets.join(",")));
+            }
             set("fail_over_mac", bond.fail_over_mac_policy.clone());
             set("min_links", bond.min_links.map(|n| n.to_string()));
             if let Some(primary) = &bond.primary {
@@ -176,34 +185,32 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
 
     // A port has no addresses of its own.
     if controller.is_none() {
-        write_ip(&mut out, network, false);
-        write_ip(&mut out, network, true);
+        write_ip(&mut out, network, false, warnings);
+        write_ip(&mut out, network, true, warnings);
     }
     warn_unsupported(network, controller.is_none(), warnings);
 
     out
 }
 
-/// The [ipv4] or [ipv6] section.
-fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
-    let family = |ip: &IpAddr| ip.is_ipv6() == ipv6;
-    let addresses: Vec<_> = network
+/// The method of the [ipv4] or [ipv6] section.
+fn method(network: &Network, ipv6: bool) -> &'static str {
+    let has_addresses = network
         .addresses
         .iter()
-        .filter(|address| family(&address.addr))
-        .collect();
+        .any(|address| address.addr.is_ipv6() == ipv6);
     let link_local = network
         .link_local
         .as_deref()
         .is_none_or(|families| families == "yes" || families == if ipv6 { "ipv6" } else { "ipv4" });
 
-    let method = if ipv6 {
+    if ipv6 {
         let ra = network.accept_ra != Some(false);
         if network.dhcp6 && ra || network.accept_ra == Some(true) {
             "auto"
         } else if network.dhcp6 {
             "dhcp"
-        } else if !addresses.is_empty() {
+        } else if has_addresses {
             "manual"
         } else if link_local {
             "link-local"
@@ -212,13 +219,26 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
         }
     } else if network.dhcp4 {
         "auto"
-    } else if !addresses.is_empty() {
+    } else if has_addresses {
         "manual"
     } else if network.link_local.is_some() && link_local {
         "link-local"
     } else {
         "disabled"
-    };
+    }
+}
+
+/// The [ipv4] or [ipv6] section.
+fn write_ip(out: &mut String, network: &Network, ipv6: bool, warnings: &mut Vec<String>) {
+    let id = &network.id;
+    let family = |ip: &IpAddr| ip.is_ipv6() == ipv6;
+    let family_name = if ipv6 { "IPv6" } else { "IPv4" };
+    let addresses: Vec<_> = network
+        .addresses
+        .iter()
+        .filter(|address| family(&address.addr))
+        .collect();
+    let method = method(network, ipv6);
 
     let _ = writeln!(out, "\n[{}]\nmethod={method}", if ipv6 { "ipv6" } else { "ipv4" });
     // An IPv4 link-local address along with the others.
@@ -232,15 +252,22 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
         let _ = writeln!(out, "address{}={address}", i + 1);
     }
 
+    // NetworkManager takes a gateway only along with an address of its own, and drops it when
+    // the default route is not to come from this connection, so it takes one gateway only then;
+    // the others become default routes.
+    let never_default = !ipv6 && network.dhcp4 && network.dhcp_overrides.use_routes == Some(false);
     let mut gateways = network.gateways.iter().filter(|gateway| family(gateway));
-    if let Some(gateway) = gateways.next() {
+    if !addresses.is_empty()
+        && !never_default
+        && let Some(gateway) = gateways.next()
+    {
         let _ = writeln!(out, "gateway={gateway}");
     }
-    // NetworkManager takes one gateway; the others become default routes.
     let extra_defaults: Vec<_> = gateways
         .map(|gateway| Route::default_via(*gateway))
         .collect();
 
+    // NetworkManager takes no name servers or search domains for a family that is disabled.
     let nameservers: Vec<_> = network
         .nameservers
         .iter()
@@ -248,24 +275,60 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
         .map(ToString::to_string)
         .collect();
     if !nameservers.is_empty() {
-        let _ = writeln!(out, "dns={};", nameservers.join(";"));
+        if method == "disabled" {
+            warnings.push(format!(
+                "skipping the {family_name} name servers of {id}, whose {family_name} is disabled \
+                for NetworkManager"
+            ));
+        } else {
+            let _ = writeln!(out, "dns={};", nameservers.join(";"));
+        }
     }
-    // The search domains go with IPv4 unless only IPv6 has name servers or addresses.
-    let search_here = if ipv6 {
-        !network.nameservers.iter().any(|ns| ns.is_ipv4()) && method != "disabled"
-    } else {
-        network.nameservers.iter().any(IpAddr::is_ipv4) || method != "disabled"
-    };
-    if search_here && !network.search.is_empty() {
-        let _ = writeln!(out, "dns-search={};", network.search.join(";"));
+    // The search domains go with IPv4, unless only IPv6 has name servers or IPv4 is disabled.
+    let enabled = |ipv6| self::method(network, ipv6) != "disabled";
+    let has_nameservers = |ipv6: bool| network.nameservers.iter().any(|ns| ns.is_ipv6() == ipv6);
+    let search_ipv6 =
+        !enabled(false) || (!has_nameservers(false) && has_nameservers(true) && enabled(true));
+    if !network.search.is_empty() {
+        if search_ipv6 == ipv6 && enabled(ipv6) {
+            let _ = writeln!(out, "dns-search={};", network.search.join(";"));
+        } else if ipv6 && !enabled(false) && !enabled(true) {
+            warnings.push(format!(
+                "skipping the search domains of {id}, with both IPv4 and IPv6 disabled for \
+                NetworkManager"
+            ));
+        }
     }
 
-    let routes = network
+    let routes: Vec<_> = network
         .routes
         .iter()
         .chain(&extra_defaults)
-        .filter(|route| route.destination.addr.is_ipv6() == ipv6);
-    for (i, route) in routes.enumerate() {
+        .filter(|route| route.destination.addr.is_ipv6() == ipv6)
+        .collect();
+    let rules: Vec<_> = network
+        .routing_policy
+        .iter()
+        .filter(|rule| rule.is_ipv6() == ipv6)
+        .collect();
+    // NetworkManager drops the routes and rules of a family that is disabled.
+    if method == "disabled" {
+        let skipped = [
+            ("gateways and routes", !routes.is_empty()),
+            ("routing policy rules", !rules.is_empty()),
+        ];
+        for (what, set) in skipped {
+            if set {
+                warnings.push(format!(
+                    "skipping the {family_name} {what} of {id}, whose {family_name} is disabled \
+                    for NetworkManager"
+                ));
+            }
+        }
+        return;
+    }
+
+    for (i, route) in routes.iter().enumerate() {
         let n = i + 1;
         let mut line = route.destination.to_string();
         if let Some(gateway) = route.gateway {
@@ -291,12 +354,8 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
         }
     }
 
-    let rules = network
-        .routing_policy
-        .iter()
-        .filter(|rule| rule.is_ipv6() == ipv6);
     // NetworkManager needs the priority to know a rule.
-    let rules = rules.filter_map(|rule| Some((rule.priority?, rule)));
+    let rules = rules.iter().filter_map(|rule| Some((rule.priority?, rule)));
     for (i, (priority, rule)) in rules.enumerate() {
         let mut line = format!("priority {priority}");
         if let Some(from) = &rule.from {

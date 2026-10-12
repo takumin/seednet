@@ -201,7 +201,7 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | | `link-local` | `LinkLocalAddressing=` | `method=link-local`, or `link-local=` of IPv4 with other addresses |
 | | `dhcp-identifier` (`mac` unless said) | `ClientIdentifier=` | `dhcp-client-id=` |
 | subnet `static`, `static6` (`address`, `netmask`, `prefix`) | `addresses` | `Address=` | `address1=` |
-| static subnet `gateway` | `gateway4`, `gateway6` | `Gateway=`, or `[Route]` in version 1 | `gateway=`, or `route1=` in version 1 |
+| static subnet `gateway` | `gateway4`, `gateway6` | `Gateway=`, or `[Route]` in version 1 | `gateway=`, or `route1=` in version 1, for a gateway beyond the first, without an address of its family, or with `use-routes: false` |
 | subnet `dns_nameservers`, `dns_search`, `type: nameserver` | `nameservers` | `DNS=`, `Domains=` | `dns=`, `dns-search=` |
 | static subnet `routes`, `type: route` | `routes` (`to`, `via`, `metric`, `on-link`, `table`) | `[Route]` | `route1=` |
 | | `addresses` options `label`, `lifetime` | `[Address]` `Label=`, `PreferredLifetime=` | skipped |
@@ -255,7 +255,10 @@ NetworkManager takes `route-metric`, `use-routes` (`ignore-auto-routes=` and `ne
 `send-hostname`, `hostname`, and `use-dns` (`ignore-auto-dns=`) for DHCPv4: for DHCPv6 it would
 ignore the name servers of the router advertisements too. It skips the others with a warning, but
 for what it does on its own, such as `use-mtu: true`. It also skips a `link-local` without `ipv6`
-on an interface with IPv6, which always has its IPv6 link-local address with NetworkManager.
+on an interface with IPv6, which always has its IPv6 link-local address with NetworkManager, the
+name servers, gateways, routes and routing policy rules of a family that the interface has disabled,
+which NetworkManager does not take, and the `arp-ip-targets` of a bond without `arp-interval`. The
+search domains go with IPv4, unless only IPv6 has name servers or IPv4 is disabled.
 
 A physical interface with a MAC address is matched on its permanent one, which stays when a bond
 gives its ports its own address, and never on the name it is renamed to, so its files apply before

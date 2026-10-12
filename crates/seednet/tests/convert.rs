@@ -1062,6 +1062,63 @@ route1_options=onlink=true
     );
 }
 
+/// The keyfiles of NetworkManager by ID, with the warnings of rendering them.
+fn render_nm(text: &str) -> (Vec<String>, Vec<String>) {
+    let conversion = convert(text).unwrap();
+    let mut warnings = conversion.warnings.clone();
+    let files =
+        seednet::render(&conversion.networks, Backend::NetworkManager, "10-seednet", &mut warnings)
+            .into_iter()
+            .filter(|file| file.name.ends_with(".nmconnection"))
+            .map(|file| file.content)
+            .collect();
+    (files, warnings)
+}
+
+#[test]
+fn network_manager_gets_what_it_takes() {
+    let (files, warnings) = render_nm(
+        "version: 2
+ethernets:
+    eth0: {dhcp4: true, gateway4: 192.0.2.1}
+    eth1:
+        addresses: [192.0.2.2/24]
+        dhcp4: true
+        gateway4: 192.0.2.1
+        dhcp4-overrides: {use-routes: false}
+    eth2:
+        addresses: [\"2001:db8::2/64\"]
+        nameservers: {addresses: [192.0.2.53, \"2001:db8::53\"], search: [example.com]}
+    eth3: {gateway4: 192.0.2.1, routing-policy: [{from: 192.0.2.0/24, priority: 1}]}
+    eth4: {}
+bonds:
+    bond0: {interfaces: [eth4], parameters: {arp-ip-targets: [192.0.2.1]}}
+",
+    );
+
+    // A gateway without an address of its own, or without the default route of DHCP, is a route.
+    assert!(files[0].contains("method=auto\nroute1=0.0.0.0/0,192.0.2.1\n"), "{}", files[0]);
+    assert!(!files[1].contains("gateway="), "{}", files[1]);
+    assert!(files[1].contains("route1=0.0.0.0/0,192.0.2.1\n"), "{}", files[1]);
+    // IPv4 is disabled: its name servers go, and the search domains go with IPv6.
+    assert!(files[2].contains("[ipv4]\nmethod=disabled\n\n"), "{}", files[2]);
+    assert!(
+        files[2].contains("dns=2001:db8::53;\ndns-search=example.com;\n"),
+        "{}",
+        files[2]
+    );
+    assert!(files[3].contains("[ipv4]\nmethod=disabled\n\n"), "{}", files[3]);
+    assert!(!files[5].contains("arp_ip_target"), "{}", files[5]);
+    for warning in [
+        "skipping the IPv4 name servers of eth2",
+        "skipping the IPv4 gateways and routes of eth3",
+        "skipping the IPv4 routing policy rules of eth3",
+        "skipping the arp-ip-targets of bond0",
+    ] {
+        assert!(warnings.iter().any(|w| w.starts_with(warning)), "{warning}: {warnings:?}");
+    }
+}
+
 #[test]
 fn network_manager_warns_about_a_primary_without_a_name() {
     let conversion = convert(
