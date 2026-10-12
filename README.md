@@ -374,7 +374,7 @@ SHA-256 in `SHA256SUMS`, a Sigstore bundle signed by the release workflow, and a
 attestation:
 
 ```console
-$ version=v0.1.0 target=x86_64-unknown-linux-musl
+$ version=v0.2.0 target=x86_64-unknown-linux-musl
 $ base=https://github.com/takumin/seednet/releases/download/$version
 $ curl -fLO "$base/seednet-$target" -fLO "$base/seednet-$target.sigstore.json" \
     -fLO "$base/seednet-contrib.tar.gz" -fLO "$base/SHA256SUMS"
