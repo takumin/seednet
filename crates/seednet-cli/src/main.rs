@@ -48,7 +48,8 @@ enum Command {
     ///
     /// The config comes from the first of: `seednet.network-config=` on the kernel command line,
     /// /etc/seednet/network-config (rootfs only), the config the initrd used (rootfs only), the
-    /// URL in `seednet.url=` (initrd only), and the CIDATA disk. Without any, nothing is written.
+    /// NoCloud seed at `seednet.url=` (initrd only), and the CIDATA disk. Without any, nothing is
+    /// written. The rootfs hands the seed that the initrd fetched to cloud-init.
     Apply {
         /// Where this runs, which decides the sources to look at.
         #[arg(long, value_enum)]
@@ -134,6 +135,7 @@ fn main() -> Result<()> {
                 cmdline: cmdline.map(|cmdline| args.sysroot.join(cmdline)),
                 cidata_dir,
                 ca_file,
+                backend,
             };
             if apply(&options, &output)? && takeover {
                 takeover::take_over(&args.sysroot, stage, backend)?;
@@ -154,9 +156,10 @@ fn apply(options: &source::Options, output: &output::Output) -> Result<bool> {
         .context("invalid kernel command line")?;
     if options.stage == Stage::Rootfs {
         output.mark_network_rootfs(source::netrootfs::is_network_rootfs(&options.sysroot))?;
+        output.install_seed()?;
     }
 
-    let Some((text, source)) = source::find(options, &params)? else {
+    let Some((text, source)) = source::find(options, &params, output)? else {
         info("no network-config for this boot, so the network is left alone");
         return Ok(false);
     };

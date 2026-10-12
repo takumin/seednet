@@ -28,7 +28,7 @@ The config comes from the first of these that is there:
 | `seednet.network-config=` on the kernel command line | yes | yes |
 | `/etc/seednet/network-config` | | yes |
 | The config the initrd used (`/run/seednet/network-config`) | | yes |
-| `seednet.url=` on the kernel command line | yes | |
+| The NoCloud seed at `seednet.url=` on the kernel command line | yes | |
 | The `network-config` on the CIDATA disk | yes | yes |
 
 Without any, it writes nothing and leaves the network alone, as it does with a config that
@@ -46,6 +46,12 @@ from in `/run/seednet/source`, and the backend in `/run/seednet/backend`. In the
 `/run/seednet/network-rootfs` when the rootfs is on the network. To keep the config when deploying to a disk, copy the former to
 `/etc/seednet/network-config` on the disk: the rootfs then uses it on every boot, whatever the CIDATA
 disk says. Seednet itself never writes to `/etc`.
+
+The initrd keeps the NoCloud seed that it fetched from `seednet.url=` in `/run/seednet/seed`,
+readable by root only, whether it has a network-config or not. The rootfs hands it to cloud-init in
+`/var/lib/cloud/seed/nocloud`, where cloud-init reads it with `ds=nocloud`, and removes the files of
+the seed of a boot before that this one does not have. Without `/etc/cloud`, as in a rootfs without
+cloud-init, it leaves the seed in `/run`.
 
 - `--stage <initrd|rootfs>`: where it runs, which decides the sources above.
 - `--cmdline <FILE>`: the kernel command line to read, instead of `/proc/cmdline` and, with
@@ -72,19 +78,50 @@ disk says. Seednet itself never writes to `/etc`.
 - `seednet.network-config=<BASE64>`: the config itself, in base64 (standard or URL-safe, padded or
   not) of the text or of its gzip. It wins over every other source, and warns when it overrides
   `/etc/seednet/network-config` or a CIDATA disk.
-- `seednet.url=<URL>`: an `http` or `https` URL to fetch the config from, over a network the initrd
-  brought up for it. A fetch that does not succeed fails, and so fails the boot. An `https` URL
-  follows no redirect to `http`. An empty one undoes one before it.
-- `seednet.checksum=<ALGORITHM>:<HEX>`: what the fetched config must hash to, with `md5`, `sha1`,
-  `sha256` or `sha512`. Prefer `sha256` or `sha512`.
-- `seednet.url-timeout=<SECONDS>`: how long to keep trying to fetch the config while the network
-  comes up (default: 60). A failure that trying again would not fix, such as a bad certificate or a
-  `404`, fails at once.
+- `seednet.url=<URL>`: the `http` or `https` URL of a NoCloud seed to fetch, over a network the
+  initrd brought up for it. It is the directory of the seed, as `ds=nocloud;s=` takes it, so it ends
+  in `/`, and the files of the seed follow it: `meta-data` and `user-data`, which the seed must have,
+  and `vendor-data` and `network-config`, which it may not (the server says `404`). The
+  network-config of the seed is the one of this boot, and a seed without one leaves the network
+  alone, as cloud-init does. A fetch that does not succeed fails, and so fails the boot. An `https`
+  URL follows no redirect to `http`. An empty one undoes one before it. It may have the names that
+  DHCP gives the host in it, as below.
+- `seednet.checksum=<ALGORITHM>:<HEX>`: what the network-config of the seed must hash to, with
+  `md5`, `sha1`, `sha256` or `sha512`. Prefer `sha256` or `sha512`. The other files of the seed are
+  not checked, so prefer an `https` URL for a `user-data` that must not be tampered with.
+- `seednet.url-timeout=<SECONDS>`: how long to keep trying to fetch the seed while the network
+  comes up and DHCP gives the names of the URL (default: 60). A failure that trying again would not
+  fix, such as a bad certificate or a `403`, fails at once.
 - `rd.seednet.timeout=<SECONDS>`: how long to wait for the CIDATA disk (default: 5), in the rootfs
   too.
 
 Only the last of a parameter counts, so only it must be valid, and `_` is the same as `-` in a name,
 as systemd takes its own. The rootfs does not read the parameters of the fetch, but for the URL.
+
+#### Names in `seednet.url=`
+
+`seednet.url=` is a URL template of level 1 of [RFC 6570], with the names that DHCP gave the host,
+so that one command line fetches the seed of each host:
+
+```text
+seednet.url=http://boot.example.com/seed/{hostname}/
+```
+
+| Variable | Value |
+|---|---|
+| `{hostname}` | The host name (option 12), up to its first dot |
+| `{domainname}` | The domain name (option 15), or else what follows the first dot of the host name |
+| `{fqdn}` | `{hostname}.{domainname}` |
+
+They come from the DHCPv4 lease of the interface with the lowest index that has a host name: the
+lease file of systemd-networkd, or what `nmcli` says of NetworkManager, which the initrd of dracut
+has. Not from the host name of the kernel, which the initrd takes from the `/etc/hostname` of the
+system it was built on. The values are percent-encoded but for the unreserved characters, as
+RFC 6570 does. Unlike RFC 6570, which expands a variable without a value to nothing, the fetch
+waits for DHCP to give it, and fails at `seednet.url-timeout=`. Other variables and the operators of
+the other levels, such as `{+hostname}`, are invalid.
+
+[RFC 6570]: https://www.rfc-editor.org/rfc/rfc6570
 
 The CIDATA disk is the one labelled `cidata` or `CIDATA`, as `vfat` or `iso9660`, as cloud-init
 looks for it. It is mounted read-only while it is read, or read where it is mounted already. A disk
@@ -155,7 +192,7 @@ that implies it, such as `root=live:https://...`, or with `seednet.url=`.
 
 - Without `seednet.url=`, it runs `seednet apply --stage initrd --takeover` before systemd-networkd
   starts, and renames the interfaces.
-- With `seednet.url=`, it fetches the config over the DHCP network of dracut, then renames the
+- With `seednet.url=`, it fetches the seed over the DHCP network of dracut, then renames the
   interfaces and restarts systemd-networkd or NetworkManager with the config, and waits for the
   network, before the initqueue reaches for the rootfs.
 
@@ -188,6 +225,11 @@ of the initrd, which NetworkManager cannot change while they have ports, unless 
 network. When it uses systemd-networkd after an initrd with NetworkManager, it removes the IPv6
 link-local addresses of the bonds and bridges, which would stay along with the ones of the MAC
 addresses that systemd-networkd gives them.
+
+It also hands the seed that the initrd fetched from `seednet.url=` to cloud-init, before
+`cloud-init-local.service`. ds-identify, which decides whether cloud-init runs, looks for the seed
+before that, as the generators of systemd run, so give the kernel `ds=nocloud` for cloud-init to
+take it.
 
 With SELinux, as on Fedora and Enterprise Linux, the files that seednet writes in `/run` take the
 labels of the policy as systemd and the directories give them, and need no `restorecon`.
@@ -393,10 +435,10 @@ labels of their files, which `e2e/disks.sh` puts on the disks, since `podman exp
 | `disk` | The rootfs on a disk, and the rootfs reads the CIDATA disk. |
 | `neednet` | As `disk`, with `rd.neednet=1`: the initrd brings up the network and the rootfs keeps it. The config is of version 1, on a CIDATA disk of iso9660 labelled `cidata`, as `cloud-localds` makes it. |
 | `cmdline` | As `neednet`, without a CIDATA disk: the config is in `seednet.network-config`, gzipped and in URL-safe base64. |
-| `url` | No CIDATA disk: the initrd fetches `seednet.url` over DHCP and checks `seednet.checksum`. |
+| `url` | No CIDATA disk: the initrd fetches the NoCloud seed of `seednet.url` over DHCP, by the `{hostname}` that DHCP gives, and checks `seednet.checksum`, and cloud-init takes the seed with `ds=nocloud`. |
 | `live` | No DHCP and no rootfs disk: the initrd brings up the network from the CIDATA disk to fetch the rootfs, as `root=live:http://...` says. |
 | `edit` | As `disk`, then `nmcli` changes a connection of seednet as the GUI does, or `networkctl edit` adds a drop-in to one file of seednet and copies another to `/etc`, and a second boot checks that the changes stayed. |
-| `https` | As `url` and `live` at once, by a host name over HTTPS: the initrd fetches `seednet.url` with the name server of DHCP, then the live rootfs with the one of the config. The image trusts a CA of the tests, and the name server of the tests runs with passt in a network namespace of its own. |
+| `https` | As `url` and `live` at once, by a host name over HTTPS: the initrd fetches `seednet.url` with the name server of DHCP, by the `{fqdn}` that DHCP gives, then the live rootfs with the one of the config. The image trusts a CA of the tests, and the name server of the tests runs with passt in a network namespace of its own. |
 | `badsum` | As `url`, with a `seednet.checksum` that the config does not have: the boot must stop in the emergency shell of the initrd, saying why. |
 
 They boot guests of the architecture of the host, x86_64 or aarch64, as the E2E workflow does every

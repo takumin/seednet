@@ -63,11 +63,23 @@ check_state()
 	# seednet, from the expected source.
 	systemctl -q is-active seednet.service || fail "seednet.service is not active"
 	case $(param e2e.source) in
-		url) expected=$(param seednet.url) ;;
+		# The host name and the FQDN that DHCP gives.
+		url) expected=$(param seednet.url | sed 's/{hostname}/seednet-e2e/; s/{fqdn}/seednet-e2e.e2e.test/') ;;
 		cmdline) expected="the kernel command line" ;;
 		*) expected="the CIDATA disk" ;;
 	esac
 	[ "$(cat /run/seednet/source 2> /dev/null)" = "$expected" ] || fail "the source is not $expected"
+
+	# cloud-init, from the seed that the initrd fetched, where it did.
+	if [ "$(param e2e.source)" = url ]; then
+		for file in meta-data user-data network-config; do
+			[ "$(stat -c %a "/var/lib/cloud/seed/nocloud/$file" 2> /dev/null)" = 600 ] \
+				|| fail "the seed has no $file readable by root only"
+		done
+		[ -e /var/lib/cloud/seed/nocloud/vendor-data ] && fail "the seed has a vendor-data"
+		[ "$(cat /var/lib/cloud/data/instance-id 2> /dev/null)" = seednet-e2e ] \
+			|| fail "cloud-init did not take the seed"
+	fi
 
 	# The network of the initrd, where it brought it up, by the backend that it was to have. The journal
 	# keeps what the initrd logged.

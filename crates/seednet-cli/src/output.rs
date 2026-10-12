@@ -10,6 +10,7 @@ use seednet::network::HEADER;
 use seednet::{Backend, Conversion, Dir};
 
 use crate::networkmanager;
+use crate::source::SEED_FILES;
 
 pub const DEFAULT_PREFIX: &str = "10-seednet";
 
@@ -32,6 +33,12 @@ pub const BACKEND: &str = "run/seednet/backend";
 
 /// There when the rootfs is on the network, so that nothing takes its network down.
 pub const NETWORK_ROOTFS: &str = "run/seednet/network-rootfs";
+
+/// The NoCloud seed that the initrd fetched, which the rootfs hands to cloud-init.
+pub const SAVED_SEED: &str = "run/seednet/seed";
+
+/// Where cloud-init reads the NoCloud seed of the rootfs, as with `ds=nocloud` without `s=`.
+const CLOUD_INIT_SEED: &str = "var/lib/cloud/seed/nocloud";
 
 pub struct Output {
     sysroot: PathBuf,
@@ -174,6 +181,43 @@ impl Output {
         write_private(&self.sysroot.join(BACKEND), format!("{backend}\n").as_bytes())
     }
 
+    /// Keeps the seed that the initrd fetched, for the rootfs. It may hold secrets, so only root
+    /// reads it.
+    pub fn save_seed(&self, files: &[(&str, Vec<u8>)]) -> Result<()> {
+        replace_seed(&self.sysroot.join(SAVED_SEED), files)
+    }
+
+    /// Hands the seed that the initrd fetched to cloud-init, in place of the one of a boot before,
+    /// so that the files the seed does not have go.
+    pub fn install_seed(&self) -> Result<()> {
+        let saved = self.sysroot.join(SAVED_SEED);
+        if !saved.is_dir() {
+            return Ok(());
+        }
+        if !self.sysroot.join("etc/cloud").is_dir() {
+            crate::info(&format!(
+                "the rootfs has no cloud-init, so the NoCloud seed stays in /{SAVED_SEED}"
+            ));
+            return Ok(());
+        }
+
+        let mut files = Vec::new();
+        for &(name, ..) in SEED_FILES {
+            let path = saved.join(name);
+            match fs::read(&path) {
+                Ok(content) => files.push((name, content)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to read {}", path.display()));
+                }
+            }
+        }
+        replace_seed(&self.sysroot.join(CLOUD_INIT_SEED), &files)?;
+        crate::info(&format!("handed the NoCloud seed to cloud-init in /{CLOUD_INIT_SEED}"));
+        Ok(())
+    }
+
     /// Notes whether the rootfs is on the network.
     pub fn mark_network_rootfs(&self, network_rootfs: bool) -> Result<()> {
         let path = self.sysroot.join(NETWORK_ROOTFS);
@@ -189,6 +233,28 @@ impl Output {
             }
         }
     }
+}
+
+/// Writes the files of a seed in `dir`, readable by root only, and removes those of the seed that
+/// it does not have.
+fn replace_seed(dir: &Path, files: &[(&str, Vec<u8>)]) -> Result<()> {
+    for (name, content) in files {
+        write_private(&dir.join(name), content)?;
+    }
+    for &(name, ..) in SEED_FILES {
+        if files.iter().any(|(file, _)| *file == name) {
+            continue;
+        }
+        let path = dir.join(name);
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| format!("failed to remove {}", path.display()));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Writes a file readable by its owner only, replacing it in one step.

@@ -2,6 +2,7 @@
 
 mod cidata;
 mod fetch;
+mod names;
 pub mod netrootfs;
 
 use std::fs;
@@ -12,13 +13,16 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use seednet::cmdline::Params;
 
-use crate::output::{SAVED_CONFIG, SAVED_SOURCE};
+use crate::output::{Output, SAVED_CONFIG, SAVED_SEED, SAVED_SOURCE};
 use crate::{Stage, info, warn};
+
+pub use fetch::SEED_FILES;
 
 /// The config that the admin put in the rootfs, which wins over everything but the command line.
 const ETC_CONFIG: &str = "etc/seednet/network-config";
 
-/// How long to keep trying to fetch `seednet.url=` unless `seednet.url-timeout=` says otherwise.
+/// How long to keep trying to fetch the seed of `seednet.url=` unless `seednet.url-timeout=` says
+/// otherwise.
 const DEFAULT_URL_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Where dracut keeps the arguments that it adds to the kernel command line, as those that
@@ -32,10 +36,17 @@ pub struct Options {
     pub cmdline: Option<PathBuf>,
     pub cidata_dir: Option<PathBuf>,
     pub ca_file: Option<PathBuf>,
+    /// The backend that brought up the network of the fetch, which has the names that DHCP gave.
+    pub backend: seednet::Backend,
 }
 
-/// The config for this boot and where it came from, or none.
-pub fn find(options: &Options, params: &Params) -> Result<Option<(String, String)>> {
+/// The config for this boot and where it came from, or none. The initrd keeps the seed that it
+/// fetched in `output`, whether it has a config or not.
+pub fn find(
+    options: &Options,
+    params: &Params,
+    output: &Output,
+) -> Result<Option<(String, String)>> {
     let sysroot = &options.sysroot;
     let etc_config = sysroot.join(ETC_CONFIG);
 
@@ -80,21 +91,29 @@ pub fn find(options: &Options, params: &Params) -> Result<Option<(String, String
             if network_rootfs {
                 return Ok(None);
             }
-            if params.url.is_some() {
+            if params.url.is_some() && !sysroot.join(SAVED_SEED).is_dir() {
                 warn("seednet.url is fetched in the initrd only, and the initrd fetched nothing");
             }
         }
         Stage::Initrd => {
-            if let Some(url) = &params.url {
+            if let Some(template) = &params.url_template {
                 let timeout = params.url_timeout.unwrap_or(DEFAULT_URL_TIMEOUT);
-                let text = fetch::fetch(
-                    url,
+                let seed = fetch::fetch(
+                    template,
                     params.checksum.as_ref(),
                     timeout,
                     sysroot,
                     options.ca_file.as_deref(),
+                    || names::dhcp(sysroot, options.backend),
                 )?;
-                return Ok(Some((text, fetch::redact(url))));
+                info(&format!("fetched the NoCloud seed from {}", seed.url));
+                output.save_seed(&seed.files)?;
+                // The seed is the one for this boot, so the CIDATA disk is not looked at.
+                let Some(text) = seed.network_config()? else {
+                    info(&format!("{} has no network-config", seed.url));
+                    return Ok(None);
+                };
+                return Ok(Some((text, seed.url)));
             }
         }
     }

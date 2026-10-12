@@ -14,6 +14,7 @@ mod networkd;
 pub mod nm;
 mod params;
 pub mod render;
+pub mod template;
 mod v1;
 mod v2;
 

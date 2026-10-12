@@ -80,27 +80,54 @@ fn assert_success(output: &Output) {
     assert!(output.status.success(), "{}", stderr(output));
 }
 
-/// Serves `body` over http to `requests` requests, and returns the URL.
-fn serve(body: &'static str, requests: usize) -> String {
+const META_DATA: &str = "instance-id: test\n";
+const USER_DATA: &str = "#cloud-config\n{}\n";
+
+/// Serves the files at their paths over http, and 404 for any other, and returns the URL of the
+/// server.
+fn serve_files(files: Vec<(String, u16, String)>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/network-config", listener.local_addr().unwrap());
+    let url = format!("http://{}", listener.local_addr().unwrap());
     thread::spawn(move || {
-        for stream in listener.incoming().take(requests) {
+        for stream in listener.incoming() {
             let mut stream = stream.unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut request = String::new();
+            reader.read_line(&mut request).unwrap();
             let mut line = String::new();
             while reader.read_line(&mut line).unwrap() > 2 {
                 line.clear();
             }
+            let path = request.split(' ').nth(1).unwrap_or_default();
+            let (status, body) = files
+                .iter()
+                .find(|(file, ..)| file == path)
+                .map_or((404, ""), |(_, status, body)| (*status, body.as_str()));
             write!(
                 stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             )
             .unwrap();
         }
     });
     url
+}
+
+/// Serves a NoCloud seed with `config` for its network-config at /seed/, and returns its URL.
+fn serve(config: &str) -> String {
+    let files = [
+        ("meta-data", META_DATA),
+        ("user-data", USER_DATA),
+        ("network-config", config),
+    ];
+    let url = serve_files(
+        files
+            .into_iter()
+            .map(|(name, body)| (format!("/seed/{name}"), 200, body.to_owned()))
+            .collect(),
+    );
+    format!("{url}/seed/")
 }
 
 fn mode(path: &Path) -> u32 {
@@ -177,15 +204,15 @@ fn rootfs_prefers_etc_to_what_the_initrd_used() {
 
 #[test]
 fn rootfs_reuses_what_the_initrd_used() {
-    let sysroot = Sysroot::new("seednet.url=http://192.0.2.1/network-config");
+    let sysroot = Sysroot::new("seednet.url=http://192.0.2.1/seed/");
     sysroot.write("run/seednet/network-config", OTHER_CONFIG);
-    sysroot.write("run/seednet/source", "http://192.0.2.1/network-config\n");
+    sysroot.write("run/seednet/source", "http://192.0.2.1/seed/\n");
     sysroot.write("cidata/network-config", CONFIG);
 
     // The rootfs does not fetch again: the URL is unreachable.
     assert_success(&sysroot.apply("rootfs"));
     assert_eq!(sysroot.networks(), ["10-seednet-eth1.network"]);
-    assert_eq!(sysroot.read("run/seednet/source"), "http://192.0.2.1/network-config\n");
+    assert_eq!(sysroot.read("run/seednet/source"), "http://192.0.2.1/seed/\n");
 }
 
 #[test]
@@ -212,7 +239,7 @@ const OTHER_SHA256: &str = "c751d7ae9e2b331c3e9054a150335f2088ef2d3d144cae5ae64d
 
 #[test]
 fn initrd_fetches_the_url_before_cidata() {
-    let url = serve(OTHER_CONFIG, 1);
+    let url = serve(OTHER_CONFIG);
     let sysroot =
         Sysroot::new(&format!("seednet.url={url} seednet.checksum=sha256:{OTHER_SHA256}"));
     sysroot.write("cidata/network-config", CONFIG);
@@ -222,11 +249,17 @@ fn initrd_fetches_the_url_before_cidata() {
     assert_eq!(sysroot.networks(), ["10-seednet-eth1.network"]);
     assert_eq!(sysroot.read("run/seednet/source"), format!("{url}\n"));
     assert!(!stderr(&output).contains("warning"));
+    // The seed is kept for the rootfs, but for what it does not have.
+    assert_eq!(sysroot.read("run/seednet/seed/meta-data"), META_DATA);
+    assert_eq!(sysroot.read("run/seednet/seed/user-data"), USER_DATA);
+    assert_eq!(sysroot.read("run/seednet/seed/network-config"), OTHER_CONFIG);
+    assert_eq!(mode(&sysroot.path("run/seednet/seed/user-data")), 0o600);
+    assert!(!sysroot.path("run/seednet/seed/vendor-data").exists());
 }
 
 #[test]
 fn a_checksum_mismatch_fails() {
-    let url = serve(CONFIG, 1);
+    let url = serve(CONFIG);
     let sysroot =
         Sysroot::new(&format!("seednet.url={url} seednet.checksum=sha256:{OTHER_SHA256}"));
 
@@ -244,9 +277,8 @@ fn a_failed_fetch_fails() {
         .local_addr()
         .unwrap()
         .port();
-    let sysroot = Sysroot::new(&format!(
-        "seednet.url=http://127.0.0.1:{port}/network-config seednet.url-timeout=1"
-    ));
+    let sysroot =
+        Sysroot::new(&format!("seednet.url=http://127.0.0.1:{port}/seed/ seednet.url-timeout=1"));
     sysroot.write("cidata/network-config", CONFIG);
 
     let output = sysroot.apply("initrd");
@@ -257,29 +289,139 @@ fn a_failed_fetch_fails() {
 
 #[test]
 fn a_client_error_fails_at_once() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!("http://{}/network-config", listener.local_addr().unwrap());
-    thread::spawn(move || {
-        let mut stream = listener.incoming().next().unwrap().unwrap();
-        let mut reader = BufReader::new(stream.try_clone().unwrap());
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap() > 2 {
-            line.clear();
-        }
-        write!(stream, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n").unwrap();
-    });
-    let sysroot = Sysroot::new(&format!("seednet.url={url} seednet.url-timeout=60"));
+    let url = serve_files(vec![
+        ("/seed/meta-data".to_owned(), 200, META_DATA.to_owned()),
+        ("/seed/user-data".to_owned(), 403, String::new()),
+    ]);
+    let sysroot = Sysroot::new(&format!("seednet.url={url}/seed/ seednet.url-timeout=60"));
 
     let started = std::time::Instant::now();
     let output = sysroot.apply("initrd");
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("404"));
+    assert!(stderr(&output).contains("403"));
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
 }
 
 #[test]
+fn a_seed_needs_meta_data_and_user_data() {
+    let url = serve_files(vec![
+        ("/seed/meta-data".to_owned(), 200, META_DATA.to_owned()),
+        ("/seed/network-config".to_owned(), 200, CONFIG.to_owned()),
+    ]);
+    let sysroot = Sysroot::new(&format!("seednet.url={url}/seed/"));
+
+    let output = sysroot.apply("initrd");
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("/seed/user-data"), "{}", stderr(&output));
+    assert!(sysroot.networks().is_empty());
+}
+
+#[test]
+fn a_seed_without_network_config_leaves_the_network_alone() {
+    let url = serve_files(vec![
+        ("/seed/meta-data".to_owned(), 200, META_DATA.to_owned()),
+        ("/seed/user-data".to_owned(), 200, USER_DATA.to_owned()),
+    ]);
+    let sysroot = Sysroot::new(&format!("seednet.url={url}/seed/"));
+    // The seed is the one of this boot, so the CIDATA disk is not looked at.
+    sysroot.write("cidata/network-config", CONFIG);
+
+    let output = sysroot.apply("initrd");
+    assert_success(&output);
+    assert!(stderr(&output).contains("has no network-config"));
+    assert!(sysroot.networks().is_empty());
+    assert!(!sysroot.path("run/seednet/source").exists());
+    assert_eq!(sysroot.read("run/seednet/seed/meta-data"), META_DATA);
+    assert!(!sysroot.path("run/seednet/seed/network-config").exists());
+
+    // Nor is there a network-config to match a checksum.
+    let sysroot =
+        Sysroot::new(&format!("seednet.url={url}/seed/ seednet.checksum=sha256:{OTHER_SHA256}"));
+    let output = sysroot.apply("initrd");
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("has no network-config"));
+}
+
+#[test]
+fn the_url_takes_the_names_that_dhcp_gave() {
+    let url = serve_files(vec![
+        (
+            "/host/example.com/host.example.com/meta-data".to_owned(),
+            200,
+            META_DATA.to_owned(),
+        ),
+        (
+            "/host/example.com/host.example.com/user-data".to_owned(),
+            200,
+            USER_DATA.to_owned(),
+        ),
+        (
+            "/host/example.com/host.example.com/network-config".to_owned(),
+            200,
+            CONFIG.to_owned(),
+        ),
+    ]);
+    let sysroot = Sysroot::new(&format!("seednet.url={url}/{{hostname}}/{{domainname}}/{{fqdn}}/"));
+    sysroot.write("run/systemd/netif/leases/2", "ADDRESS=10.0.2.15\n");
+    sysroot.write("run/systemd/netif/leases/3", "HOSTNAME=host.example.com\n");
+
+    let output = sysroot.apply("initrd");
+    assert_success(&output);
+    assert_eq!(sysroot.networks(), ["10-seednet-eth0.network"]);
+    assert_eq!(
+        sysroot.read("run/seednet/source"),
+        format!("{url}/host/example.com/host.example.com/\n")
+    );
+}
+
+#[test]
+fn the_url_waits_for_the_names_that_dhcp_gives() {
+    let sysroot = Sysroot::new("seednet.url=http://192.0.2.1/{fqdn}/ seednet.url-timeout=2");
+    sysroot.write("run/systemd/netif/leases/2", "HOSTNAME=host\n");
+
+    let output = sysroot.apply("initrd");
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("DHCP did not give the host name and the domain for {fqdn}"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn rootfs_hands_the_seed_to_cloud_init() {
+    let sysroot = Sysroot::new("ro");
+    sysroot.write("run/seednet/seed/meta-data", META_DATA);
+    sysroot.write("run/seednet/seed/user-data", USER_DATA);
+    sysroot.write("run/seednet/seed/network-config", CONFIG);
+    // Of a boot before, which the seed of this one does not have.
+    sysroot.write("var/lib/cloud/seed/nocloud/vendor-data", "#cloud-config\n{}\n");
+    sysroot.write("var/lib/cloud/seed/nocloud/other", "");
+
+    // Without cloud-init, the seed stays where it is.
+    let output = sysroot.apply("rootfs");
+    assert_success(&output);
+    assert!(stderr(&output).contains("has no cloud-init"));
+    assert!(
+        !sysroot
+            .path("var/lib/cloud/seed/nocloud/meta-data")
+            .exists()
+    );
+
+    fs::create_dir_all(sysroot.path("etc/cloud")).unwrap();
+    assert_success(&sysroot.apply("rootfs"));
+    let seed = "var/lib/cloud/seed/nocloud";
+    assert_eq!(sysroot.read(&format!("{seed}/meta-data")), META_DATA);
+    assert_eq!(sysroot.read(&format!("{seed}/user-data")), USER_DATA);
+    assert_eq!(sysroot.read(&format!("{seed}/network-config")), CONFIG);
+    assert_eq!(mode(&sysroot.path(&format!("{seed}/user-data"))), 0o600);
+    assert!(!sysroot.path(&format!("{seed}/vendor-data")).exists());
+    assert!(sysroot.path(&format!("{seed}/other")).exists());
+}
+
+#[test]
 fn an_https_url_needs_a_ca_bundle() {
-    let sysroot = Sysroot::new("seednet.url=https://192.0.2.1/network-config");
+    let sysroot = Sysroot::new("seednet.url=https://192.0.2.1/seed/");
 
     let output = sysroot.apply("initrd");
     assert!(!output.status.success());
@@ -561,7 +703,7 @@ fn convert_writes_one_config() {
 
 #[test]
 fn a_timeout_too_long_for_the_clock_waits_without_end() {
-    let url = serve(CONFIG, 1);
+    let url = serve(CONFIG);
     let sysroot = Sysroot::new(&format!(
         "seednet.url={url} seednet.url-timeout=18446744073709551615 \
         rd.seednet.timeout=18446744073709551615"
@@ -586,7 +728,7 @@ fn a_cidata_disk_that_does_not_mount_is_skipped() {
 
 #[test]
 fn initrd_reads_the_cmdline_of_dracut_too() {
-    let url = serve(OTHER_CONFIG, 1);
+    let url = serve(OTHER_CONFIG);
     let sysroot = Sysroot::new("ro seednet.url-timeout=5");
     sysroot.write("etc/cmdline.d/50-seednet.conf", &format!("seednet.url={url}\n"));
     sysroot.write("etc/cmdline.d/60-other.conf", "seednet.url-timeout=soon\n");

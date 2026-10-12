@@ -17,14 +17,16 @@
 #            cloud-localds makes it.
 #   cmdline  As neednet, without a CIDATA disk: the config is in seednet.network-config, gzipped and
 #            in URL-safe base64.
-#   url      No CIDATA disk: the initrd fetches seednet.url over DHCP, with seednet.checksum.
+#   url      No CIDATA disk: the initrd fetches the NoCloud seed of seednet.url over DHCP, by the
+#            host name that DHCP gives, with seednet.checksum, and cloud-init takes the seed.
 #   live     No rootfs disk: the initrd brings up the network from the CIDATA disk, without DHCP, to
 #            fetch a live rootfs over HTTP, as root=live:http://... says.
 #   edit     As disk, then the network is changed with the usual tool, and a second boot checks
 #            that the change stayed: with nmcli, as the GUI changes it, or with networkctl edit, as a
 #            drop-in and as a copy of a whole file.
 #   https    As url and live at once, by a host name over HTTPS: the initrd fetches seednet.url
-#            with the name server of DHCP, then the live rootfs with the one of the config.
+#            with the name server of DHCP, by the FQDN that DHCP gives, then the live rootfs with
+#            the one of the config.
 #   badsum   As url, with a seednet.checksum that the config does not have: the boot must stop in
 #            the initrd, saying so.
 #
@@ -74,6 +76,8 @@ cd "$work"
 
 # The host name of the servers, which only the name server of the tests knows.
 name=seednet.e2e.test
+# The FQDN that DHCP gives the guest, by which it fetches its seed.
+guest_fqdn=seednet-e2e.e2e.test
 
 pids=
 boot_pids=
@@ -151,7 +155,11 @@ fi
 # HTTPS and DNS, and the name server of the tests is at 10.0.2.3, which the config names.
 rm -rf www port
 mkdir www
-cp "$repo/e2e/network-config" www/
+# The seed of the guest, by its host name and by its FQDN.
+for seed in "www/seed/${guest_fqdn%%.*}" "www/seed/$guest_fqdn"; do
+	mkdir -p "$seed"
+	cp "$repo/e2e/network-config" "$repo/e2e/meta-data" "$repo/e2e/user-data" "$seed/"
+done
 ln rootfs.squashfs www/rootfs.squashfs 2> /dev/null || cp rootfs.squashfs www/
 if [ "$scenario" = https ]; then
 	server=https://$name
@@ -192,7 +200,10 @@ case $scenario in
 		sum=$(sha256sum "$repo/e2e/network-config" | cut -d' ' -f1)
 		# The checksum of something else.
 		[ "$scenario" != badsum ] || sum=$(echo | sha256sum | cut -d' ' -f1)
-		cmdline="$cmdline seednet.url=$server/network-config seednet.checksum=sha256:$sum"
+		seed='{hostname}'
+		[ "$scenario" != https ] || seed='{fqdn}'
+		# ds-identify looks for the seed before seednet hands it to cloud-init.
+		cmdline="$cmdline seednet.url=$server/seed/$seed/ seednet.checksum=sha256:$sum ds=nocloud"
 		disks=
 		dhcp=
 		;;
@@ -229,7 +240,7 @@ boot()
 	phase=$1
 
 	# Three NICs, each on its own passt: nic0 and nic1 for bond0, and nic2 for vlan10.
-	passt="passt --vhost-user -f -q -a 10.0.2.15 -n 24 -g 10.0.2.2 $dhcp --no-ndp --no-dhcpv6 --no-ra"
+	passt="passt --vhost-user -f -q -a 10.0.2.15 -n 24 -g 10.0.2.2 $dhcp -H $guest_fqdn --no-ndp --no-dhcpv6 --no-ra"
 	nets=
 	for i in 0 1 2; do
 		rm -f "p$i.sock"

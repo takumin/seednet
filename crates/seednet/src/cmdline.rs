@@ -8,6 +8,7 @@ use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
 use crate::checksum::Checksum;
+use crate::template::Template;
 
 /// The most a network-config may take, decoded or fetched, so that a bad one cannot fill the
 /// memory of the initrd.
@@ -18,9 +19,11 @@ pub const MAX_CONFIG_SIZE: usize = 1 << 20;
 pub struct Params {
     /// `seednet.network-config=`: the config itself, decoded from base64 and gunzipped if need be.
     pub network_config: Option<String>,
-    /// `seednet.url=`: where to fetch the config from.
+    /// `seednet.url=`: the NoCloud seed to fetch, as it is on the command line.
     pub url: Option<String>,
-    /// `seednet.checksum=`: what the fetched config must hash to.
+    /// `seednet.url=` as a template, read only to fetch.
+    pub url_template: Option<Template>,
+    /// `seednet.checksum=`: what the fetched network-config must hash to.
     pub checksum: Option<Checksum>,
     /// `seednet.url-timeout=`: how long to keep trying to fetch the config, in seconds.
     pub url_timeout: Option<Duration>,
@@ -56,6 +59,15 @@ impl Params {
             ..Self::default()
         };
         if fetch {
+            if let Some(url) = &params.url {
+                // The names of the files follow it, as cloud-init reads them from ds=nocloud;s=.
+                if !url.ends_with('/') {
+                    bail!(
+                        "seednet.url is the directory of the NoCloud seed, so it ends in /: {url}"
+                    );
+                }
+                params.url_template = Some(Template::parse(url).context("invalid seednet.url")?);
+            }
             params.checksum = get("seednet.checksum")
                 .map(|value| value.parse().context("invalid seednet.checksum"))
                 .transpose()?;
@@ -175,7 +187,7 @@ mod tests {
         let empty_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         let params = Params::parse(
             &format!(
-                "ro seednet.url=http://a/1 seednet.url=http://a/2 \
+                "ro seednet.url=http://a/1/ seednet.url=http://a/{{hostname}}/ \
             seednet.checksum=sha256:{empty_sha256} seednet.url-timeout=30 rd.seednet.timeout=3 \
             seednet.network-config=dmVyc2lvbjogMgo\n",
             ),
@@ -183,13 +195,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(params.url.as_deref(), Some("http://a/2"));
+        assert_eq!(params.url.as_deref(), Some("http://a/{hostname}/"));
+        assert_eq!(params.url_template.unwrap().vars(), [crate::template::Var::Hostname]);
         assert!(params.checksum.is_some());
         assert_eq!(params.url_timeout, Some(Duration::from_secs(30)));
         assert_eq!(params.cidata_timeout, Some(Duration::from_secs(3)));
         assert_eq!(params.network_config.as_deref(), Some("version: 2\n"));
 
-        let params = Params::parse("seednet.url=http://a/1 seednet.url=", true).unwrap();
+        let params = Params::parse("seednet.url=http://a/1/ seednet.url=", true).unwrap();
         assert_eq!(params.url, None);
     }
 
@@ -198,6 +211,8 @@ mod tests {
         assert!(Params::parse("seednet.network-config=!!!", true).is_err());
         assert!(Params::parse("seednet.url-timeout=soon", true).is_err());
         assert!(Params::parse("seednet.checksum=sha256:00", true).is_err());
+        assert!(Params::parse("seednet.url=http://a/{host}/", true).is_err());
+        assert!(Params::parse("seednet.url=http://a/network-config", true).is_err());
         let md5 = "seednet.checksum=md5:d41d8cd98f00b204e9800998ecf8427e";
         assert!(Params::parse(md5, true).is_err());
 
@@ -205,6 +220,7 @@ mod tests {
         assert!(Params::parse("seednet.url-timeout=soon seednet.url-timeout=5", true).is_ok());
         assert!(Params::parse("seednet.url-timeout=soon", false).is_ok());
         assert!(Params::parse(md5, false).is_ok());
+        assert!(Params::parse("seednet.url=http://a/{host}/", false).is_ok());
     }
 
     #[test]
