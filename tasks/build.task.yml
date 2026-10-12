@@ -61,6 +61,23 @@ tasks:
     - mkdir -p dist
     - cp target/{{.TARGET}}/{{.PROFILE}}/{{.PROJNAME}} dist/{{.PROJNAME}}-{{.PROFILE}}-{{.TARGET}}
 
+  # The tests on the target of the release, as the binary runs there, on a host of its
+  # architecture.
+  test:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    label: build:test:{{.PROFILE}}:{{.TARGET}}
+    deps:
+    - task: setup:build
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    vars:
+      MOLD_RUN: '{{if contains "-linux-" .TARGET}}mold -run{{end}}'
+      PROFILE_ARG: '{{if eq .PROFILE "release"}}--release{{end}}'
+    cmds:
+    - '{{.MOLD_RUN}} cargo-zigbuild test --frozen {{.PROFILE_ARG}} --target={{.TARGET}}'
+
   sha256sum:
     desc: '{{.TASK}}'
     label: sha256sum:{{.PROFILE}}:{{.TARGET}}
