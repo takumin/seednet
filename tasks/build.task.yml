@@ -1,0 +1,102 @@
+---
+# https://taskfile.dev
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+vars:
+  PROJNAME:
+    sh: cargo metadata --format-version=1 --no-deps | jq -r '[.packages[].targets[] | select(.kind | index("bin")) | .name] | first'
+  PROFILE: '{{env "BUILD_PROFILE" | default "debug"}}'
+  TARGET: '{{env "BUILD_TARGET" | default "x86_64-unknown-linux-musl"}}'
+  # seednet goes into an initrd, so only static musl binaries are built.
+  MATRIX_TARGETS:
+  - x86_64-unknown-linux-musl
+  - aarch64-unknown-linux-musl
+
+includes:
+  setup:
+    taskfile: setup.task.yml
+    internal: true
+
+tasks:
+  default:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - task: build
+    - task: sha256sum
+
+  matrix:
+    desc: '{{.TASK}}'
+    silent: true
+    cmds:
+    - echo '{{ .MATRIX_TARGETS | toJson }}' | jq -cM -f scripts/build-matrix.jq
+
+  build:
+    desc: '{{.TASK}}'
+    dir: '{{.ROOT_DIR}}'
+    label: build:{{.PROFILE}}:{{.TARGET}}
+    deps:
+    - task: setup:build
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    sources:
+    - 'Cargo.toml'
+    - 'crates/*/Cargo.toml'
+    - 'Cargo.lock'
+    - 'crates/*/src/**/*.rs'
+    generates:
+    - target/{{.TARGET}}/{{.PROFILE}}/{{.PROJNAME}}
+    - dist/{{.PROJNAME}}-{{.PROFILE}}-{{.TARGET}}
+    vars:
+      MOLD_RUN: '{{if contains "-linux-" .TARGET}}mold -run{{end}}'
+      PROFILE_ARG: '{{if eq .PROFILE "release"}}--release{{end}}'
+      TARGET_ARG: '--target={{.TARGET}}{{if contains "-linux-gnu" .TARGET}}.2.17{{end}}'
+    cmds:
+    - '{{.MOLD_RUN}} cargo zigbuild --frozen {{.PROFILE_ARG}} {{.TARGET_ARG}}'
+    # The initrd has no dynamic loader, so a dynamically linked binary is a build failure.
+    - file target/{{.TARGET}}/{{.PROFILE}}/{{.PROJNAME}} | grep -Eq 'statically linked|static-pie linked'
+    - mkdir -p dist
+    - cp target/{{.TARGET}}/{{.PROFILE}}/{{.PROJNAME}} dist/{{.PROJNAME}}-{{.PROFILE}}-{{.TARGET}}
+
+  sha256sum:
+    desc: '{{.TASK}}'
+    label: sha256sum:{{.PROFILE}}:{{.TARGET}}
+    dir: '{{.ROOT_DIR}}/dist'
+    deps:
+    - task: setup:build
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    - task: build
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    vars:
+      ARTIFACT: '{{.PROJNAME}}-{{.PROFILE}}-{{.TARGET}}'
+    sources:
+    - '{{.ARTIFACT}}'
+    generates:
+    - '{{.ARTIFACT}}.sha256sum'
+    cmds:
+    - coreutils sha256sum "{{.ARTIFACT}}" > "{{.ARTIFACT}}.sha256sum"
+
+  sha256sum:verify:
+    desc: '{{.TASK}}'
+    label: sha256sum:verify:{{.PROFILE}}:{{.TARGET}}
+    dir: '{{.ROOT_DIR}}/dist'
+    deps:
+    - task: setup:build
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    - task: sha256sum
+      vars:
+        PROFILE: '{{.PROFILE}}'
+        TARGET: '{{.TARGET}}'
+    vars:
+      ARTIFACT: '{{.PROJNAME}}-{{.PROFILE}}-{{.TARGET}}'
+    cmds:
+    - coreutils sha256sum -c "{{.ARTIFACT}}.sha256sum"
