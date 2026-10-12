@@ -305,6 +305,32 @@ interface name, so a port matched on its MAC address alone needs `set-name` for 
 [version 1]: https://docs.cloud-init.io/en/latest/reference/network-config-format-v1.html
 [version 2]: https://docs.cloud-init.io/en/latest/reference/network-config-format-v2.html
 
+## Install
+
+The [releases] have static binaries for `x86_64-unknown-linux-musl` and
+`aarch64-unknown-linux-musl`, and `seednet-contrib.tar.gz` with what `contrib/` has, each with its
+SHA-256 in `SHA256SUMS`, a Sigstore bundle signed by the release workflow, and a build provenance
+attestation:
+
+```console
+$ version=v0.1.0 target=x86_64-unknown-linux-musl
+$ base=https://github.com/takumin/seednet/releases/download/$version
+$ curl -fLO "$base/seednet-$target" -fLO "$base/seednet-$target.sigstore.json" \
+    -fLO "$base/seednet-contrib.tar.gz" -fLO "$base/SHA256SUMS"
+$ sha256sum --ignore-missing -c SHA256SUMS
+$ cosign verify-blob --bundle "seednet-$target.sigstore.json" \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+    --certificate-identity "https://github.com/takumin/seednet/.github/workflows/wc-sign.yml@refs/tags/$version" \
+    "seednet-$target"
+$ gh attestation verify "seednet-$target" --repo takumin/seednet
+$ install -m 0755 "seednet-$target" /usr/bin/seednet
+$ tar -xzf seednet-contrib.tar.gz
+```
+
+Then install what `contrib/` has as [Boot integration](#boot-integration) says.
+
+[releases]: https://github.com/takumin/seednet/releases
+
 ## Build
 
 ```console
@@ -352,8 +378,6 @@ python3, and work in `target/e2e`.
 
 The workspace has two crates: `crates/seednet`, a library that parses and converts the config
 without any I/O, and `crates/seednet-cli`, which builds the `seednet` command.
-
-The releases have static binaries for `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl`.
 
 ## License
 
