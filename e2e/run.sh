@@ -1,7 +1,7 @@
 #!/bin/sh
 # Boots a guest with seednet and checks its network, without root privileges.
 #
-#   e2e/run.sh <debian|ubuntu|fedora|el9|el10> <initrd> <rootfs> <disk|neednet|url|live|edit|https>
+#   e2e/run.sh <debian|ubuntu|fedora|el9|el10> <initrd> <rootfs> <scenario>
 #
 # <initrd> and <rootfs> are networkd or nm: the backend of the initrd and of the rootfs.
 #
@@ -13,6 +13,10 @@
 #
 #   disk     The rootfs on a disk; seednet.service in the rootfs reads the CIDATA disk.
 #   neednet  As disk, with rd.neednet=1: the initrd brings up the network, and the rootfs keeps it.
+#            The config is of version 1, on a CIDATA disk of iso9660 labelled cidata, as
+#            cloud-localds makes it.
+#   cmdline  As neednet, without a CIDATA disk: the config is in seednet.network-config, gzipped and
+#            in URL-safe base64.
 #   url      No CIDATA disk: the initrd fetches seednet.url over DHCP, with seednet.checksum.
 #   live     No rootfs disk: the initrd brings up the network from the CIDATA disk, without DHCP, to
 #            fetch a live rootfs over HTTP, as root=live:http://... says.
@@ -21,9 +25,11 @@
 #            drop-in and as a copy of a whole file.
 #   https    As url and live at once, by a host name over HTTPS: the initrd fetches seednet.url
 #            with the name server of DHCP, then the live rootfs with the one of the config.
+#   badsum   As url, with a seednet.checksum that the config does not have: the boot must stop in
+#            the initrd, saying so.
 #
 # It needs an x86_64 host with KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy,
-# mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout,
+# xorrisofs, mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout,
 # sha256sum, openssl and python3, and the release build of seednet for x86_64-unknown-linux-musl. The
 # work goes in target/e2e.
 set -eu
@@ -31,12 +37,15 @@ set -eu
 distro=${1:?distro: debian, ubuntu, fedora, el9 or el10}
 initrd=${2:?initrd: networkd or nm}
 backend=${3:?rootfs: networkd or nm}
-scenario=${4:?scenario: disk, neednet, url, live, edit or https}
+scenario=${4:?scenario: disk, neednet, cmdline, url, live, edit, https or badsum}
 case $distro in debian | ubuntu | fedora | el9 | el10) ;; *) echo "unknown distro: $distro" >&2 && exit 2 ;; esac
 for b in "$initrd" "$backend"; do
 	case $b in networkd | nm) ;; *) echo "unknown backend: $b" >&2 && exit 2 ;; esac
 done
-case $scenario in disk | neednet | url | live | edit | https) ;; *) echo "unknown scenario: $scenario" >&2 && exit 2 ;; esac
+case $scenario in
+	disk | neednet | cmdline | url | live | edit | https | badsum) ;;
+	*) echo "unknown scenario: $scenario" >&2 && exit 2 ;;
+esac
 case $distro,$initrd,$backend in
 	el*,networkd,* | el*,*,networkd) echo "$distro has no systemd-networkd" >&2 && exit 2 ;;
 	debian,*) ;;
@@ -100,9 +109,17 @@ if ! cmp -s image.id.new image.id || [ ! -e rootfs.img ] || [ ! -e rootfs.squash
 	mv image.id.new image.id
 fi
 
-rm -f cidata.img
-mkdosfs -n CIDATA -C cidata.img 2048 > /dev/null
-mcopy -i cidata.img "$repo/e2e/network-config" "$repo/e2e/meta-data" "$repo/e2e/user-data" ::
+rm -rf cidata.img cidata
+if [ "$scenario" = neednet ]; then
+	# As cloud-localds makes it, with a config of version 1.
+	mkdir cidata
+	cp "$repo/e2e/network-config-v1" cidata/network-config
+	cp "$repo/e2e/meta-data" "$repo/e2e/user-data" cidata/
+	xorrisofs -quiet -o cidata.img -V cidata -J -r cidata
+else
+	mkdosfs -n CIDATA -C cidata.img 2048 > /dev/null
+	mcopy -i cidata.img "$repo/e2e/network-config" "$repo/e2e/meta-data" "$repo/e2e/user-data" ::
+fi
 
 # A server for the config and the live rootfs, on the host loopback that passt maps the gateway to.
 # With https, it is in a network namespace of its own with passt, where it can take the ports of
@@ -136,15 +153,22 @@ case $scenario in
 	neednet)
 		cmdline="$cmdline root=/dev/vda rw rd.neednet=1"
 		;;
-	url | https)
+	cmdline)
+		config=$(gzip -9n < "$repo/e2e/network-config" | basenc --base64url -w 0 | tr -d =)
+		cmdline="$cmdline root=/dev/vda rw rd.neednet=1 seednet.network-config=$config"
+		disks=
+		;;
+	url | https | badsum)
 		sum=$(sha256sum "$repo/e2e/network-config" | cut -d' ' -f1)
+		# The checksum of something else.
+		[ "$scenario" != badsum ] || sum=$(echo | sha256sum | cut -d' ' -f1)
 		cmdline="$cmdline seednet.url=$server/network-config seednet.checksum=sha256:$sum"
 		disks=
 		dhcp=
 		;;
 esac
 case $scenario in
-	url) cmdline="$cmdline root=/dev/vda rw" ;;
+	url | badsum) cmdline="$cmdline root=/dev/vda rw" ;;
 	live | https)
 		cmdline="$cmdline root=live:$server/rootfs.squashfs rd.live.overlay.overlayfs=1"
 		memory=3G
@@ -152,6 +176,7 @@ case $scenario in
 esac
 case $scenario in
 	url | https) cmdline="$cmdline e2e.source=url" ;;
+	cmdline) cmdline="$cmdline e2e.source=cmdline" ;;
 	*) cmdline="$cmdline e2e.source=cidata" ;;
 esac
 # The backend of the rootfs, and the one that brings up the network of the initrd, where it does.
@@ -164,6 +189,9 @@ if [ "$scenario" != live ] && [ "$scenario" != https ]; then
 	cp --sparse=always rootfs.img run.img
 	disks="path=run.img,image_type=raw $disks"
 fi
+
+# What seednet says of a config that does not have the checksum.
+badsum="is not the expected one"
 
 # Boots the guest once, with e2e.phase=$1 when it is not empty, and checks its report.
 boot()
@@ -213,8 +241,18 @@ boot()
 		--cpus boot=2 --memory "size=$memory,shared=on" \
 		${disks:+--disk $disks} --net $nets \
 		--serial tty --console off > "$console" 2>&1 &
-	boot_pids="$boot_pids $!"
-	wait $! || true
+	vm=$!
+	boot_pids="$boot_pids $vm"
+	if [ "$scenario" = badsum ]; then
+		# The guest stops in the emergency shell, which it does not leave by itself.
+		n=0
+		while kill -0 "$vm" 2> /dev/null && ! grep -q "$badsum" "$console" && [ "$n" -lt 120 ]; do
+			sleep 1
+			n=$((n + 1))
+		done
+		kill "$vm" 2> /dev/null || true
+	fi
+	wait "$vm" || true
 	if [ -n "$netns" ]; then
 		rm -f netns.run
 		wait "$netns" || true
@@ -225,7 +263,14 @@ boot()
 	boot_pids=
 
 	sed -n '/=== E2E-REPORT/,/E2E-RESULT/p' "$console" | tr -d '\r'
-	if grep -q 'E2E-RESULT: PASS' "$console"; then
+	if [ "$scenario" = badsum ]; then
+		if grep -q "$badsum" "$console" && ! grep -q 'E2E-RESULT' "$console"; then
+			echo "PASS: $distro $initrd $backend $scenario"
+		else
+			echo "FAIL: $distro $initrd $backend $scenario: the boot did not stop on the checksum (see $work/$console)"
+			exit 1
+		fi
+	elif grep -q 'E2E-RESULT: PASS' "$console"; then
 		echo "PASS: $distro $initrd $backend $scenario${phase:+ ($phase)}"
 	else
 		echo "FAIL: $distro $initrd $backend $scenario${phase:+ ($phase)} (see $work/$console)"

@@ -56,11 +56,15 @@ check_state()
 	ip -4 -o addr show dev br0 | grep -q ' 192.168.10.1/24 ' || fail "br0 has no 192.168.10.1/24"
 	ip route show default | grep -q 'via 10.0.2.2 dev bond0' || fail "no default route via bond0"
 	ip route show 198.51.100.0/24 | grep -q 'via 192.168.10.254 dev br0' || fail "no route to 198.51.100.0/24"
+	# Nothing of the network of the initrd stays, such as the IPv6 link-local address of a MAC address
+	# that another backend gave the bridge.
+	[ "$(ip -6 -o addr show dev br0 scope link | wc -l)" -le 1 ] || fail "br0 has more than one IPv6 link-local address"
 
 	# seednet, from the expected source.
 	systemctl -q is-active seednet.service || fail "seednet.service is not active"
 	case $(param e2e.source) in
 		url) expected=$(param seednet.url) ;;
+		cmdline) expected="the kernel command line" ;;
 		*) expected="the CIDATA disk" ;;
 	esac
 	[ "$(cat /run/seednet/source 2> /dev/null)" = "$expected" ] || fail "the source is not $expected"

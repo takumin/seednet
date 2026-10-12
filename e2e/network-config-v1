@@ -1,0 +1,27 @@
+network:
+  version: 1
+  config:
+  - {type: physical, name: nic0, mac_address: "52:54:00:00:00:01"}
+  - {type: physical, name: nic1, mac_address: "52:54:00:00:00:02"}
+  - {type: physical, name: nic2, mac_address: "52:54:00:00:00:03"}
+  - type: bond
+    name: bond0
+    bond_interfaces: [nic0, nic1]
+    params: {bond-mode: active-backup, bond-miimon: 100, bond-primary: nic0}
+    subnets:
+    - type: static
+      address: 10.0.2.15/24
+      gateway: 10.0.2.2
+      metric: 100
+      dns_nameservers: [10.0.2.3]
+      dns_search: [example.com]
+  - {type: vlan, name: vlan10, vlan_link: nic2, vlan_id: 10}
+  - type: bridge
+    name: br0
+    bridge_interfaces: [vlan10]
+    params: {bridge_stp: "off", bridge_fd: 0}
+    subnets:
+    - type: static
+      address: 192.168.10.1/24
+      routes:
+      - {network: 198.51.100.0, prefix: 24, gateway: 192.168.10.254, metric: 50}

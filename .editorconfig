@@ -24,7 +24,7 @@ indent_style = space
 indent_style = space
 
 # The cloud-init files of the end-to-end tests, which are YAML without the extension.
-[e2e/{network-config,meta-data,user-data}]
+[e2e/{network-config,network-config-v1,meta-data,user-data}]
 indent_style = space
 
 [*.rs]
