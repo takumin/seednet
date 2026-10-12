@@ -35,6 +35,36 @@ impl Cidr {
         Ok(Self { addr, prefix })
     }
 
+    /// The destination of a default route: `0.0.0.0/0` or `::/0`.
+    pub fn default_route(ipv6: bool) -> Self {
+        let addr = if ipv6 {
+            IpAddr::V6(Ipv6Addr::UNSPECIFIED)
+        } else {
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+        };
+        Self { addr, prefix: 0 }
+    }
+
+    /// Parses an address that must have its prefix length, as netplan takes it.
+    pub fn parse_with_prefix(address: &str) -> Result<Self> {
+        if !address.contains('/') {
+            bail!("address {address} is missing /prefixlength");
+        }
+        Self::parse(address, None)
+    }
+
+    /// Parses an address with a prefix length, or a bare one that stands for the host alone.
+    pub fn parse_host_or_network(address: &str) -> Result<Self> {
+        if address.contains('/') {
+            return Self::parse(address, None);
+        }
+        let addr = parse_addr(address)?;
+        Ok(Self {
+            addr,
+            prefix: if addr.is_ipv6() { 128 } else { 32 },
+        })
+    }
+
     /// Whether `ip` lies in the network of this address.
     pub fn contains(&self, ip: IpAddr) -> bool {
         match (self.addr, ip) {

@@ -157,14 +157,27 @@ pub struct Bridge {
 }
 
 /// One route.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Route {
-    /// None for the default route.
-    pub destination: Option<Cidr>,
+    /// `0.0.0.0/0` or `::/0` for a default route, which tells its family as netplan writes it.
+    pub destination: Cidr,
     pub gateway: Option<IpAddr>,
     pub metric: Option<u32>,
     pub on_link: bool,
     pub table: Option<u32>,
+}
+
+impl Route {
+    /// The default route via `gateway`.
+    pub fn default_via(gateway: IpAddr) -> Self {
+        Self {
+            destination: Cidr::default_route(gateway.is_ipv6()),
+            gateway: Some(gateway),
+            metric: None,
+            on_link: false,
+            table: None,
+        }
+    }
 }
 
 impl Network {

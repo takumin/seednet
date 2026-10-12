@@ -203,7 +203,7 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | subnet `static`, `static6` (`address`, `netmask`, `prefix`) | `addresses` | `Address=` | `address1=` |
 | static subnet `gateway` | `gateway4`, `gateway6` | `Gateway=`, or `[Route]` in version 1 | `gateway=`, or `route1=` in version 1 |
 | subnet `dns_nameservers`, `dns_search`, `type: nameserver` | `nameservers` | `DNS=`, `Domains=` | `dns=`, `dns-search=` |
-| static subnet `routes`, `type: route` | `routes` | `[Route]` | `route1=` |
+| static subnet `routes`, `type: route` | `routes` (`to`, `via`, `metric`, `on-link`, `table`) | `[Route]` | `route1=` |
 | | `addresses` options `label`, `lifetime` | `[Address]` `Label=`, `PreferredLifetime=` | skipped |
 | | `routing-policy` | `[RoutingPolicyRule]` | `routing-rule1=`, with `priority` only |
 | | `ipv6-privacy`, `ipv6-mtu` | `IPv6PrivacyExtensions=`, `IPv6MTUBytes=` | `ip6-privacy=`, `mtu=` |
@@ -220,6 +220,7 @@ Version 1 is read as cloud-init converts it to version 2 for netplan:
 - The name servers of `type: nameserver` without `interface` go to the interfaces with static
   addresses and no name servers or search domains of their own.
 - `type: loopback` is ignored.
+- A route to `default` is to `0.0.0.0/0` or `::/0`, by the family of its gateway.
 
 Unlike that conversion, which drops them, the name servers of `type: nameserver` with `interface`
 are added to that interface, and a `type: route` goes to the interface whose subnet has its
@@ -233,6 +234,10 @@ spellings (`bond-miimon`, `bridge_fd` and so on). `mode`, `lacp-rate`, `transmit
 `ad-select` and `fail-over-mac-policy` take only the names that both systemd-networkd and
 NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
 that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space.
+
+The config fails, as netplan does, on an address without its prefix length, and a route without `to`
+or to `default` without `via`, whose family it would not know. A route to an address without a
+prefix length is to that host alone.
 
 The DHCP overrides are `use-dns`, `use-ntp`, `use-hostname`, `use-domains`, `use-mtu`,
 `use-routes`, `route-metric`, `send-hostname` and `hostname`. As netplan writes them to one

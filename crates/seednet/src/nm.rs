@@ -238,10 +238,7 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
     }
     // NetworkManager takes one gateway; the others become default routes.
     let extra_defaults: Vec<_> = gateways
-        .map(|gateway| Route {
-            gateway: Some(*gateway),
-            ..Default::default()
-        })
+        .map(|gateway| Route::default_via(*gateway))
         .collect();
 
     let nameservers: Vec<_> = network
@@ -267,15 +264,10 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool) {
         .routes
         .iter()
         .chain(&extra_defaults)
-        .filter(|route| route_is_ipv6(route) == Some(ipv6));
+        .filter(|route| route.destination.addr.is_ipv6() == ipv6);
     for (i, route) in routes.enumerate() {
         let n = i + 1;
-        let destination = match &route.destination {
-            Some(destination) => destination.to_string(),
-            None if ipv6 => "::/0".to_owned(),
-            None => "0.0.0.0/0".to_owned(),
-        };
-        let mut line = destination;
+        let mut line = route.destination.to_string();
         if let Some(gateway) = route.gateway {
             let _ = write!(line, ",{gateway}");
         }
@@ -420,15 +412,6 @@ fn warn_unsupported(network: &Network, has_addresses: bool, warnings: &mut Vec<S
         if set {
             skip(format!("{key} of the DHCP overrides"));
         }
-    }
-}
-
-/// The family of a route, from its destination or else its gateway.
-fn route_is_ipv6(route: &Route) -> Option<bool> {
-    match (&route.destination, &route.gateway) {
-        (Some(destination), _) => Some(destination.addr.is_ipv6()),
-        (None, Some(gateway)) => Some(gateway.is_ipv6()),
-        (None, None) => None,
     }
 }
 

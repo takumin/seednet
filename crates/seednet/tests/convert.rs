@@ -46,9 +46,11 @@ DNS=2001:4860:4860::8888
 Domains=example.com
 
 [Route]
+Destination=0.0.0.0/0
 Gateway=203.0.113.1
 
 [Route]
+Destination=::/0
 Gateway=2001:db8::1
 
 [Route]
@@ -105,6 +107,7 @@ UseMTU=yes
 RouteMetric=100
 
 [Route]
+Destination=0.0.0.0/0
 Gateway=192.0.2.1
 
 [Route]
@@ -142,9 +145,11 @@ DNS=2606:4700:4700::1111
 Domains=example.com
 
 [Route]
+Destination=0.0.0.0/0
 Gateway=203.0.113.1
 
 [Route]
+Destination=::/0
 Gateway=fe80::1
 GatewayOnLink=yes
 
@@ -253,7 +258,7 @@ fn unknown_keys_are_returned_as_warnings() {
     let destinations: Vec<_> = conversion.networks[0]
         .routes
         .iter()
-        .map(|route| route.destination.unwrap().to_string())
+        .map(|route| route.destination.to_string())
         .collect();
     assert_eq!(destinations, ["198.51.100.0/24", "10.0.0.0/8"]);
 
@@ -547,6 +552,7 @@ UseMTU=yes
 RouteMetric=200
 
 [Route]
+Destination=0.0.0.0/0
 Gateway=192.0.2.1
 GatewayOnLink=yes
 Metric=50
@@ -717,9 +723,68 @@ fn invalid_configs_fail() {
         "    dhcp4: true\n    dhcp-identifier: hostname\n",
         // netplan takes no different overrides for DHCPv4 and DHCPv6 with networkd.
         "    dhcp4: true\n    dhcp6: true\n    dhcp4-overrides: {use-dns: false}\n",
+        // netplan wants the prefix length of an address.
+        "    addresses: [192.0.2.10]\n",
+        // A default route without via has no family, and a route needs its destination.
+        "    routes: [{to: default}]\n",
+        "    routes: [{via: 192.0.2.1}]\n",
+        "    routes: [{to: 198.51.100.0/24, via: \"2001:db8::1\"}]\n",
     ] {
         assert!(convert(&format!("{eth0}{invalid}")).is_err(), "{invalid}");
     }
+}
+
+#[test]
+fn default_routes_keep_their_family() {
+    let v2 = "version: 2
+ethernets:
+    eth0:
+        addresses: [192.0.2.10/24, \"2001:db8::10/64\"]
+        routes:
+            - {to: default, via: 192.0.2.1}
+            - {to: \"::/0\", scope: link}
+            - {to: 0.0.0.0/0, table: 100}
+            - {to: 198.51.100.7, via: 192.0.2.254}
+";
+    let networkd = &render(v2)[0].1;
+    for route in [
+        "[Route]\nDestination=0.0.0.0/0\nGateway=192.0.2.1\n",
+        "[Route]\nDestination=::/0\n",
+        "[Route]\nDestination=0.0.0.0/0\nTable=100\n",
+        "[Route]\nDestination=198.51.100.7/32\nGateway=192.0.2.254\n",
+    ] {
+        assert!(networkd.contains(route), "{route}\n{networkd}");
+    }
+    let nm = &files_nm(v2)[0];
+    for route in [
+        "route1=0.0.0.0/0,192.0.2.1\n",
+        "route2=0.0.0.0/0\nroute2_options=table=100\n",
+        "route3=198.51.100.7/32,192.0.2.254\n",
+        "route1=::/0\n",
+    ] {
+        assert!(nm.contains(route), "{route}\n{nm}");
+    }
+
+    // cloud-init takes `default` for the network of a version 1 route.
+    let v1 = "version: 1
+config:
+    -   type: physical
+        name: eth0
+        subnets:
+            -   type: static
+                address: 192.0.2.10/24
+                routes: [{network: default, gateway: 192.0.2.1}]
+    - {type: route, destination: default, gateway: 192.0.2.254}
+";
+    let networkd = &render(v1)[0].1;
+    assert!(
+        networkd.contains("[Route]\nDestination=0.0.0.0/0\nGateway=192.0.2.1\n"),
+        "{networkd}"
+    );
+    assert!(
+        networkd.contains("[Route]\nDestination=0.0.0.0/0\nGateway=192.0.2.254\n"),
+        "{networkd}"
+    );
 }
 
 #[test]
@@ -818,6 +883,7 @@ Domains=example.com
 ConfigureWithoutCarrier=yes
 
 [Route]
+Destination=0.0.0.0/0
 Gateway=192.0.2.1
 "
         )

@@ -330,7 +330,8 @@ fn network(
             }
             _ => bail!("invalid address of {}: {address:?}", network.id),
         };
-        let address = Cidr::parse(address, None)?;
+        let address = Cidr::parse_with_prefix(address)
+            .with_context(|| format!("invalid address of {}", network.id))?;
         push_unique(&mut network.addresses, address);
         if let Some(options) = options.filter(|options| !options.is_null()) {
             let what = format!("the address {address} of {}", network.id);
@@ -387,18 +388,26 @@ fn network(
         }
         let what = format!("a route of {}", network.id);
         lenient::warn_unknown(&route.rest, &what, warnings);
+        let gateway = route.via.as_deref().map(parse_addr).transpose()?;
+        // `default` takes the family of the gateway, and a bare address is a route to that host.
         let destination = match route.to.as_deref().map(str::trim) {
-            None | Some("default") => None,
-            Some(to) => {
-                let destination = Cidr::parse(to, None)?;
-                (destination.prefix != 0).then_some(destination)
-            }
+            None => bail!("{what} has no to"),
+            Some("default") => match gateway {
+                Some(gateway) => Cidr::default_route(gateway.is_ipv6()),
+                None => bail!("{what} to default has no via, which would tell its family"),
+            },
+            Some(to) => Cidr::parse_host_or_network(to)?,
         };
+        if let Some(gateway) = gateway
+            && gateway.is_ipv6() != destination.addr.is_ipv6()
+        {
+            bail!("{what} has to and via of different families");
+        }
         push_unique(
             &mut network.routes,
             Route {
                 destination,
-                gateway: route.via.as_deref().map(parse_addr).transpose()?,
+                gateway,
                 metric: route.metric,
                 on_link: route.on_link.unwrap_or(false),
                 table: route.table,
@@ -409,8 +418,16 @@ fn network(
     for rule in common.routing_policy {
         let what = format!("a routing policy rule of {}", network.id);
         lenient::warn_unknown(&rule.rest, &what, warnings);
-        let from = rule.from.as_deref().map(host_or_network).transpose()?;
-        let to = rule.to.as_deref().map(host_or_network).transpose()?;
+        let from = rule
+            .from
+            .as_deref()
+            .map(Cidr::parse_host_or_network)
+            .transpose()?;
+        let to = rule
+            .to
+            .as_deref()
+            .map(Cidr::parse_host_or_network)
+            .transpose()?;
         match (from, to) {
             (None, None) => bail!("{what} has neither from nor to"),
             (Some(from), Some(to)) if from.addr.is_ipv6() != to.addr.is_ipv6() => {
@@ -435,18 +452,6 @@ fn network(
     }
 
     Ok(network)
-}
-
-/// An address with a prefix length, or a bare one that stands for the host alone.
-fn host_or_network(address: &str) -> Result<Cidr> {
-    if address.contains('/') {
-        return Cidr::parse(address, None);
-    }
-    let addr = parse_addr(address)?;
-    Ok(Cidr {
-        addr,
-        prefix: if addr.is_ipv6() { 128 } else { 32 },
-    })
 }
 
 /// The overrides of both DHCPv4 and DHCPv6, as netplan takes them with networkd: those of the one

@@ -351,9 +351,7 @@ fn write_rule(out: &mut String, rule: &RoutingRule) {
 
 fn write_route(out: &mut String, route: &Route) {
     out.push_str("\n[Route]\n");
-    if let Some(destination) = &route.destination {
-        let _ = writeln!(out, "Destination={destination}");
-    }
+    let _ = writeln!(out, "Destination={}", route.destination);
     if let Some(gateway) = &route.gateway {
         let _ = writeln!(out, "Gateway={gateway}");
     }

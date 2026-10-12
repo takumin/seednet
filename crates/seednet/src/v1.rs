@@ -405,10 +405,9 @@ fn add_subnet(
                 let gateway = parse_addr(gateway)?;
                 // A gateway out of the subnet is reached on the link.
                 let route = Route {
-                    gateway: Some(gateway),
                     on_link: !address.contains(gateway),
                     metric: subnet.metric,
-                    ..Default::default()
+                    ..Route::default_via(gateway)
                 };
                 push_unique(&mut network.routes, route);
             }
@@ -460,21 +459,25 @@ fn add_subnet(
 }
 
 fn route_of(route: &SubnetRoute) -> Result<Route> {
-    let destination = match &route.network {
+    let gateway = route.gateway.as_deref().map(parse_addr).transpose()?;
+    // `default`, as cloud-init normalizes it, takes the family of the gateway.
+    let destination = match route.network.as_deref().map(str::trim) {
+        Some("default") | None => match gateway {
+            Some(gateway) => Cidr::default_route(gateway.is_ipv6()),
+            None => bail!("a default route has no gateway, which would tell its family"),
+        },
         Some(network) => {
             let netmask = route.prefix.as_deref().or(route.netmask.as_deref());
-            let destination = Cidr::parse(network, netmask)?;
-            // A default route is written without a destination, as networkd takes it.
-            (destination.prefix != 0).then_some(destination)
+            Cidr::parse(network, netmask)?
         }
-        None => None,
     };
 
     Ok(Route {
         destination,
-        gateway: route.gateway.as_deref().map(parse_addr).transpose()?,
+        gateway,
         metric: route.metric,
-        ..Default::default()
+        on_link: false,
+        table: None,
     })
 }
 
