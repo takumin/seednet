@@ -21,10 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each architecture boots guests of its own, with KVM, as e2e/all.sh lists them.
+        # The guests, as e2e/all.sh lists them, boot with KVM, which the arm runners of GitHub do
+        # not have, so they boot on x86_64 alone.
         runner:
         - ubuntu-26.04
-        - ubuntu-26.04-arm
         guest:
         - debian-networkd-networkd
         - debian-networkd-nm
