@@ -233,7 +233,8 @@ The bond parameters are `mode`, `lacp-rate`, `mii-monitor-interval`, `up-delay`,
 spellings (`bond-miimon`, `bridge_fd` and so on). `mode`, `lacp-rate`, `transmit-hash-policy`,
 `ad-select` and `fail-over-mac-policy` take only the names that both systemd-networkd and
 NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
-that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space.
+that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space. A bridge with `parameters`,
+even empty ones, has STP on unless they say `stp: false`, as netplan has it.
 
 The config fails, as netplan does, on an address without its prefix length, a route without `to`
 or to `default` without `via`, whose family it would not know, and a MAC address that is none. A

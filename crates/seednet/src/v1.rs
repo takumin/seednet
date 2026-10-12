@@ -320,7 +320,11 @@ fn controller_network(
             .iter()
             .map(|(key, value)| (params::v1_bridge_key(key), value))
             .collect();
-        let bridge = params::bridge(&id, &pairs, warnings)?;
+        let mut bridge = params::bridge(&id, &pairs, warnings)?;
+        // cloud-init gives netplan the parameters of a bridge that has any, which turn STP on.
+        if !parameters.is_empty() {
+            bridge.bridge.stp.get_or_insert(true);
+        }
         let network = Network {
             id,
             kind: Kind::Bridge(bridge.bridge.clone()),

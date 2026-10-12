@@ -832,6 +832,31 @@ ethernets:
 }
 
 #[test]
+fn parameters_turn_stp_on_as_with_netplan() {
+    let netdev = |config: &str| {
+        files(config, Backend::Networkd)
+            .into_iter()
+            .find(|(name, _)| name.ends_with(".netdev"))
+            .unwrap()
+            .1
+    };
+    let bridge = "version: 2\nethernets: {eth0: {}}\nbridges:\n  br0:\n    interfaces: [eth0]\n";
+    assert!(!netdev(bridge).contains("STP"));
+    let with = |parameters: &str| format!("{bridge}    parameters: {parameters}\n");
+    assert!(netdev(&with("{}")).contains("[Bridge]\nSTP=yes\n"));
+    assert!(netdev(&with("{forward-delay: 4}")).contains("[Bridge]\nSTP=yes\nForwardDelaySec=4\n"));
+    assert!(netdev(&with("{stp: false}")).contains("[Bridge]\nSTP=no\n"));
+    assert!(files_nm(&with("{forward-delay: 4}"))[1].contains("[bridge]\nstp=true\n"));
+
+    let v1 = "version: 1
+config:
+    - {type: physical, name: eth0}
+    - {type: bridge, name: br0, bridge_interfaces: [eth0], params: {bridge_fd: 4}}
+";
+    assert!(netdev(v1).contains("[Bridge]\nSTP=yes\nForwardDelaySec=4\n"));
+}
+
+#[test]
 fn v1_and_v2_convert_alike() {
     assert_eq!(
         convert(include_str!("fixtures/v1-bond-bridge-vlan.yaml")).unwrap(),

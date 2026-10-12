@@ -50,8 +50,8 @@ struct Ethernet {
 struct Controller {
     #[serde(default, deserialize_with = "lenient::list")]
     interfaces: Vec<String>,
-    #[serde(default)]
-    parameters: BTreeMap<String, Value>,
+    /// Even an empty one turns STP on for a bridge, as with netplan.
+    parameters: Option<BTreeMap<String, Value>>,
     macaddress: Option<String>,
     #[serde(flatten)]
     common: Common,
@@ -211,14 +211,17 @@ pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>>
         networks.push(ethernet_network(id, ethernet, warnings)?);
     }
     for (id, bond) in config.bonds {
-        let parameters = pairs(&bond.parameters);
+        let parameters = pairs(bond.parameters.as_ref());
         let kind = Kind::Bond(params::bond(&id, &parameters, warnings)?);
         ports.push((id.clone(), bond.interfaces, None));
         networks.push(network(id, kind, bond.macaddress, bond.common, warnings)?);
     }
     for (id, bridge) in config.bridges {
-        let parameters = pairs(&bridge.parameters);
-        let params = params::bridge(&id, &parameters, warnings)?;
+        let parameters = pairs(bridge.parameters.as_ref());
+        let mut params = params::bridge(&id, &parameters, warnings)?;
+        if bridge.parameters.is_some() {
+            params.bridge.stp.get_or_insert(true);
+        }
         let kind = Kind::Bridge(params.bridge.clone());
         ports.push((id.clone(), bridge.interfaces, Some(params)));
         networks.push(network(id, kind, bridge.macaddress, bridge.common, warnings)?);
@@ -241,8 +244,12 @@ pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>>
     Ok(networks)
 }
 
-fn pairs(parameters: &BTreeMap<String, Value>) -> Vec<(&str, &Value)> {
-    parameters.iter().map(|(k, v)| (k.as_str(), v)).collect()
+fn pairs(parameters: Option<&BTreeMap<String, Value>>) -> Vec<(&str, &Value)> {
+    parameters
+        .into_iter()
+        .flatten()
+        .map(|(k, v)| (k.as_str(), v))
+        .collect()
 }
 
 fn ethernet_network(id: String, ethernet: Ethernet, warnings: &mut Vec<String>) -> Result<Network> {
