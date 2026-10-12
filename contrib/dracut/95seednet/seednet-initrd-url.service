@@ -1,7 +1,8 @@
-# Fetches the config of seednet.url over the DHCP network of dracut, then brings up the network the
-# way it says, before the initqueue reaches for the rootfs over it. A fetch that fails fails the boot.
+# Fetches the NoCloud seed at seednet.url over the DHCP network of dracut, then brings up the network
+# the way its network-config says, before the initqueue reaches for the rootfs over it. A fetch that
+# fails fails the boot.
 [Unit]
-Description=Network configuration from the NoCloud network-config at seednet.url
+Description=Network configuration from the NoCloud seed at seednet.url
 DefaultDependencies=no
 ConditionPathExists=/run/seednet/neednet
 ConditionPathExists=/run/seednet/url

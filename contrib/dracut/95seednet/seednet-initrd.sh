@@ -1,6 +1,6 @@
 #!/bin/sh
 # Brings up the network of the initrd from the NoCloud network-config: before systemd-networkd or
-# NetworkManager starts, or with `url`, once the DHCP network of dracut is up to fetch the config
+# NetworkManager starts, or with `url`, once the DHCP network of dracut is up to fetch the seed
 # over.
 set -eu
 
