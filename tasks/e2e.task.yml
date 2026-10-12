@@ -11,9 +11,8 @@ includes:
 
 tasks:
   # Boots guests with seednet on cloud-hypervisor and checks their network (see e2e/all.sh and
-  # e2e/run.sh), the guests at once. Not part of the default `task all`: it needs KVM, podman,
-  # passt, cloud-hypervisor, mkdosfs, mcopy, mksquashfs, debugfs, openssl and python3, and takes
-  # minutes. Some guests only: task e2e -- debian-nm-networkd el10-nm-nm
+  # e2e/run.sh), the guests at once. Not part of the default `task all`: it needs the tools that
+  # e2e/run.sh lists, and takes minutes. Some guests only: task e2e -- debian-nm-networkd el10-nm-nm
   default:
     desc: '{{.TASK}}'
     deps:

@@ -343,8 +343,10 @@ labels of their files, which `e2e/disks.sh` puts on the disks, since `podman exp
 | `edit` | As `disk`, then `nmcli` changes a connection of seednet as the GUI does, or `networkctl edit` adds a drop-in to one file of seednet and copies another to `/etc`, and a second boot checks that the changes stayed. |
 | `https` | As `url` and `live` at once, by a host name over HTTPS: the initrd fetches `seednet.url` with the name server of DHCP, then the live rootfs with the one of the config. The image trusts a CA of the tests, and the name server of the tests runs with passt in a network namespace of its own. |
 
-They need KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy, mksquashfs 4.6 or
-later, debugfs, openssl and python3, and work in `target/e2e`.
+They need an x86_64 host with KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy,
+mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later (for `mkfs.ext4 -d`),
+`ip` of iproute2, `unshare` of util-linux, `timeout` and `sha256sum` of coreutils, openssl and
+python3, and work in `target/e2e`.
 
 The workspace has two crates: `crates/seednet`, a library that parses and converts the config
 without any I/O, and `crates/seednet-cli`, which builds the `seednet` command.

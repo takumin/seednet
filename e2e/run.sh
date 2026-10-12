@@ -22,8 +22,9 @@
 #   https    As url and live at once, by a host name over HTTPS: the initrd fetches seednet.url
 #            with the name server of DHCP, then the live rootfs with the one of the config.
 #
-# It needs podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy, mksquashfs 4.6 or later,
-# debugfs, openssl and python3, and the release build of seednet for x86_64-unknown-linux-musl. The
+# It needs an x86_64 host with KVM, podman, passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy,
+# mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout,
+# sha256sum, openssl and python3, and the release build of seednet for x86_64-unknown-linux-musl. The
 # work goes in target/e2e.
 set -eu
 
@@ -55,6 +56,20 @@ name=seednet.e2e.test
 pids=
 boot_pids=
 netns=
+# Waits up to 30 seconds for a file to be there, as test says it, such as -s for one not empty.
+wait_for()
+{
+	n=0
+	while ! test "$1" "$2"; do
+		n=$((n + 1))
+		if [ "$n" -gt 300 ]; then
+			echo "$2 is not there after 30 seconds" >&2
+			return 1
+		fi
+		sleep 0.1
+	done
+}
+
 cleanup()
 {
 	# The servers and passt in the network namespace stop themselves when netns.run goes.
@@ -101,7 +116,10 @@ if [ "$scenario" = https ]; then
 else
 	python3 -I "$repo/e2e/server.py" www port > http.log 2>&1 &
 	pids="$pids $!"
-	while [ ! -s port ]; do sleep 0.1; done
+	wait_for -s port || {
+		cat http.log >&2
+		exit 1
+	}
 	server=http://10.0.2.2:$(cat port)
 fi
 
@@ -185,7 +203,7 @@ boot()
 		done
 	fi
 	for i in 0 1 2; do
-		while [ ! -S "p$i.sock" ]; do sleep 0.1; done
+		wait_for -S "p$i.sock"
 	done
 
 	console=console-$scenario${phase:+-$phase}.log
