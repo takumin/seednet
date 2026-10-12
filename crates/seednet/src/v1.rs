@@ -49,6 +49,8 @@ struct Physical {
     mtu: Option<u32>,
     #[serde(default, rename = "accept-ra", deserialize_with = "lenient::opt_bool")]
     accept_ra: Option<bool>,
+    /// What cloud-init gives netplan as `critical`.
+    keep_configuration: Option<Value>,
     #[serde(default)]
     subnets: Vec<Subnet>,
     #[serde(flatten)]
@@ -270,6 +272,11 @@ fn physical_network(physical: Physical, warnings: &mut Vec<String>) -> Result<Ne
         None => (None, physical.name, None),
     };
 
+    let critical = match &physical.keep_configuration {
+        None => None,
+        Some(value) => crate::v2::critical(value)
+            .with_context(|| format!("invalid keep_configuration of {id}"))?,
+    };
     let network = Network {
         id,
         mac_address,
@@ -277,6 +284,7 @@ fn physical_network(physical: Physical, warnings: &mut Vec<String>) -> Result<Ne
         set_name,
         mtu: physical.mtu,
         accept_ra: physical.accept_ra,
+        critical,
         ..Default::default()
     };
 

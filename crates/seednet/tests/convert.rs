@@ -800,6 +800,9 @@ ethernets:
     id1:
         match: {macaddress: \"52:54:00:AA:BB:CC\"}
         macaddress: \"52:54:00:DD:EE:FF\"
+    id2:
+        match: {name: eth2}
+        macaddress: stable
 ";
     assert!(convert("version: 2\nethernets:\n  id0:\n    match: {macaddress: x}\n").is_err());
     assert!(convert("version: 2\nethernets:\n  \"a\\nb\":\n    match: {name: a}\n").is_err());
@@ -814,12 +817,16 @@ ethernets:
         "{}",
         networkd[1].1
     );
+    // udev makes a random one, as the policy of the .link file, but not a stable one.
+    let links = files(config, Backend::Networkd);
+    assert_eq!(links[0].0, "10-seednet-id0.link");
+    assert!(links[0].1.ends_with("[Link]\nMACAddressPolicy=random\n"), "{}", links[0].1);
     let conversion = convert(config).unwrap();
     let mut warnings = Vec::new();
     seednet::render(&conversion.networks, Backend::Networkd, "10-seednet", &mut warnings);
     assert_eq!(
         warnings,
-        ["skipping the macaddress random of id0, which networkd does not take"]
+        ["skipping the macaddress stable of id2, which networkd does not take"]
     );
 
     let (nm, warnings) = render_nm(config);
@@ -906,6 +913,22 @@ fn device_route_and_bond_keys() {
         assert!(content.contains(part), "{name}: {part}\n{content}");
     };
     has(
+        "10-seednet-eth0.link",
+        "[Link]\nWakeOnLan=magic\nMACAddressPolicy=persistent\nReceiveChecksumOffload=no\n\
+        TCPSegmentationOffload=yes\n",
+    );
+    has("10-seednet-eth0.network", "[Link]\nActivationPolicy=manual\n");
+    has("10-seednet-eth0.network", "[Network]\nEmitLLDP=yes\n");
+    has("10-seednet-eth0.network", "IPv6Token=static:::42\n");
+    has(
+        "10-seednet-eth0.network",
+        "ConfigureWithoutCarrier=yes\nKeepConfiguration=dynamic-on-stop\n",
+    );
+    has(
+        "10-seednet-eth0.network",
+        "[IPv6AcceptRA]\nRouteMetric=100\nUseDNS=no\nUseDomains=route\nRouteTable=120\n",
+    );
+    has(
         "10-seednet-eth0.network",
         "Gateway=192.0.2.1\nPreferredSource=192.0.2.10\nMTUBytes=1400\n\
         InitialCongestionWindow=10\nInitialAdvertisedReceiveWindow=20\n\
@@ -917,19 +940,29 @@ fn device_route_and_bond_keys() {
         "Destination=203.0.113.128/25\nScope=host\nType=nat\n",
     );
     has(
+        "10-seednet-eth1.network",
+        "[Bridge]\nHairPin=yes\nLearning=no\nNeighborSuppression=yes\n",
+    );
+    has(
         "10-seednet-bond0.netdev",
         "AllSlavesActive=1\nARPValidate=all\nARPAllTargets=all\nGratuitousARP=3\n\
         PrimaryReselectPolicy=better\nResendIGMP=2\nLearnPacketIntervalSec=5\n",
     );
     has("10-seednet-bond1.netdev", "PacketsPerSlave=4\n");
+    has("10-seednet-br0.network", "[Link]\nActivationPolicy=always-down\n");
 
     let (nm, warnings) = render_nm(config);
     let has = |i: usize, part: &str| assert!(nm[i].contains(part), "{part}\n{}", nm[i]);
+    has(0, "autoconnect=false\n");
+    has(0, "cloned-mac-address=permanent\nwake-on-lan=64\n");
+    has(0, "[ethtool]\nfeature-rx=false\nfeature-tso=true\n");
     has(
         0,
         "route1_options=src=192.0.2.10,mtu=1400,initcwnd=10,initrwnd=20,advmss=1300\n",
     );
     has(0, "route2=203.0.113.0/24\nroute2_options=type=blackhole\n");
+    has(0, "addr-gen-mode=0\ntoken=::42\nignore-auto-dns=true\n");
+    has(1, "[bridge-port]\nhairpin-mode=true\n");
     has(
         3,
         "all_slaves_active=1\narp_validate=all\narp_all_targets=all\nnum_grat_arp=3\n\
@@ -938,6 +971,12 @@ fn device_route_and_bond_keys() {
     for warning in [
         "skipping the nat route to 203.0.113.128/25 of eth0",
         "skipping the scope host of the route to 192.0.2.128/25 of eth0",
+        "skipping emit-lldp of eth0",
+        "skipping critical of eth0",
+        "skipping table of the ra-overrides of eth0",
+        "skipping port-mac-learning of eth1",
+        "skipping the activation-mode off of br0",
+        "skipping ipv6-address-generation of eth2, a port of bond0",
     ] {
         assert!(warnings.iter().any(|w| w.starts_with(warning)), "{warning}: {warnings:?}");
     }
@@ -946,6 +985,7 @@ fn device_route_and_bond_keys() {
     let v1 = "version: 1
 config:
     - {type: physical, name: eth0}
+    - {type: physical, name: eth1, keep_configuration: static}
     -   type: bond
         name: bond0
         bond_interfaces: [eth0]
@@ -953,6 +993,7 @@ config:
 ";
     let networkd: std::collections::HashMap<_, _> =
         files(v1, Backend::Networkd).into_iter().collect();
+    assert!(networkd["10-seednet-eth1.network"].contains("KeepConfiguration=static\n"));
     assert!(
         networkd["10-seednet-bond0.netdev"]
             .contains("ARPValidate=active\nGratuitousARP=2\nPrimaryReselectPolicy=always\n")
@@ -962,6 +1003,9 @@ config:
         "    routes: [{to: 198.51.100.0/24, scope: global}]\n",
         "    routes: [{to: 198.51.100.0/24, via: 192.0.2.1, type: bogus}]\n",
         "    routes: [{to: 198.51.100.0/24, via: 192.0.2.1, from: \"2001:db8::1\"}]\n",
+        "    critical: sometimes\n",
+        "    activation-mode: on\n",
+        "    ipv6-address-token: 192.0.2.1\n",
     ] {
         let config = format!("version: 2\nethernets:\n  eth0:\n{invalid}");
         assert!(convert(&config).is_err(), "{invalid}");

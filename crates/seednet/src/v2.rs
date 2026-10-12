@@ -10,7 +10,8 @@ use yaml_serde::Value;
 use crate::ip::{Cidr, parse_addr};
 use crate::lenient::{self, Rest};
 use crate::network::{
-    AddressOptions, DhcpOverrides, Kind, Network, Route, RoutingRule, attach_ports, push_unique,
+    AddressOptions, DhcpOverrides, Kind, Network, Offloads, RaOverrides, Route, RoutingRule,
+    attach_ports, push_unique,
 };
 use crate::params;
 
@@ -41,6 +42,24 @@ struct Ethernet {
     matches: Option<Match>,
     set_name: Option<String>,
     macaddress: Option<String>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    wakeonlan: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    emit_lldp: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    receive_checksum_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    transmit_checksum_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    tcp_segmentation_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    tcp6_segmentation_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    generic_segmentation_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    generic_receive_offload: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    large_receive_offload: Option<bool>,
     #[serde(flatten)]
     common: Common,
 }
@@ -98,6 +117,20 @@ struct Common {
     #[serde(default, deserialize_with = "lenient::opt_u32")]
     ipv6_mtu: Option<u32>,
     dhcp_identifier: Option<String>,
+    ipv6_address_generation: Option<String>,
+    ipv6_address_token: Option<String>,
+    ra_overrides: Option<RaOverridesConfig>,
+    activation_mode: Option<String>,
+    /// A boolean, or what of the configuration stays.
+    critical: Option<Value>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    ignore_carrier: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    hairpin: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    port_mac_learning: Option<bool>,
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    neigh_suppress: Option<bool>,
     /// What none of the above reads, which goes after them all.
     #[serde(flatten)]
     rest: Rest,
@@ -124,6 +157,19 @@ struct Overrides {
     hostname: Option<String>,
     #[serde(default, deserialize_with = "lenient::opt_u32")]
     route_metric: Option<u32>,
+    #[serde(flatten)]
+    rest: Rest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct RaOverridesConfig {
+    #[serde(default, deserialize_with = "lenient::opt_bool")]
+    use_dns: Option<bool>,
+    /// A boolean, or `route`.
+    use_domains: Option<Value>,
+    #[serde(default, deserialize_with = "lenient::opt_u32")]
+    table: Option<u32>,
     #[serde(flatten)]
     rest: Rest,
 }
@@ -302,6 +348,17 @@ fn ethernet_network(id: String, ethernet: Ethernet, warnings: &mut Vec<String>) 
     network.name = name;
     network.drivers = drivers;
     network.set_name = ethernet.set_name;
+    network.wake_on_lan = ethernet.wakeonlan;
+    network.emit_lldp = ethernet.emit_lldp.unwrap_or(false);
+    network.offloads = Offloads {
+        receive_checksum: ethernet.receive_checksum_offload,
+        transmit_checksum: ethernet.transmit_checksum_offload,
+        tcp_segmentation: ethernet.tcp_segmentation_offload,
+        tcp6_segmentation: ethernet.tcp6_segmentation_offload,
+        generic_segmentation: ethernet.generic_segmentation_offload,
+        generic_receive: ethernet.generic_receive_offload,
+        large_receive: ethernet.large_receive_offload,
+    };
     Ok(network)
 }
 
@@ -340,10 +397,51 @@ fn network(
         ipv6_privacy: common.ipv6_privacy,
         ipv6_mtu: common.ipv6_mtu,
         dhcp_identifier: common.dhcp_identifier,
+        ignore_carrier: common.ignore_carrier.unwrap_or(false),
+        hairpin: common.hairpin,
+        port_mac_learning: common.port_mac_learning,
+        neigh_suppress: common.neigh_suppress,
         id,
         kind,
         ..Default::default()
     };
+    let id = &network.id;
+    if let Some(mode) = common.activation_mode {
+        if !matches!(mode.as_str(), "manual" | "off") {
+            bail!("invalid activation-mode of {id}: {mode}, not manual or off");
+        }
+        network.activation_mode = Some(mode);
+    }
+    network.critical = match &common.critical {
+        None => None,
+        Some(value) => critical(value).with_context(|| format!("invalid critical of {id}"))?,
+    };
+    if let Some(generation) = common.ipv6_address_generation {
+        if !matches!(generation.as_str(), "eui64" | "stable-privacy") {
+            bail!("invalid ipv6-address-generation of {id}: {generation}");
+        }
+        network.ipv6_address_generation = Some(generation);
+    }
+    if let Some(token) = &common.ipv6_address_token {
+        network.ipv6_address_token = Some(
+            token
+                .trim()
+                .parse()
+                .with_context(|| format!("invalid ipv6-address-token of {id}: {token}"))?,
+        );
+    }
+    if let Some(ra) = common.ra_overrides {
+        lenient::warn_unknown(&ra.rest, &format!("the ra-overrides of {id}"), warnings);
+        network.ra_overrides = RaOverrides {
+            use_dns: ra.use_dns,
+            use_domains: ra
+                .use_domains
+                .as_ref()
+                .map(|value| use_domains(id, value))
+                .transpose()?,
+            table: ra.table,
+        };
+    }
     if let Some(identifier) = &network.dhcp_identifier
         && !matches!(identifier.as_str(), "mac" | "duid")
     {
@@ -568,26 +666,60 @@ fn overrides(
         return Ok(DhcpOverrides::default());
     };
     lenient::warn_unknown(&overrides.rest, &format!("the {family}-overrides of {id}"), warnings);
-    let use_domains = match &overrides.use_domains {
-        None => None,
-        Some(Value::Bool(value)) => Some(if *value { "yes" } else { "no" }),
-        Some(Value::String(value)) => match value.to_ascii_lowercase().as_str() {
-            "route" => Some("route"),
-            "true" | "yes" | "on" | "y" => Some("yes"),
-            "false" | "no" | "off" | "n" => Some("no"),
-            _ => bail!("invalid use-domains of {id}: {value}"),
-        },
-        Some(value) => bail!("invalid use-domains of {id}: {value:?}"),
-    };
+    let use_domains = overrides
+        .use_domains
+        .as_ref()
+        .map(|value| use_domains(id, value))
+        .transpose()?;
     Ok(DhcpOverrides {
         use_dns: overrides.use_dns,
         use_ntp: overrides.use_ntp,
         use_hostname: overrides.use_hostname,
         use_mtu: overrides.use_mtu,
         use_routes: overrides.use_routes,
-        use_domains: use_domains.map(str::to_owned),
+        use_domains,
         send_hostname: overrides.send_hostname,
         hostname: overrides.hostname,
         route_metric: overrides.route_metric,
     })
+}
+
+/// `use-domains`: a boolean, or `route`, as networkd takes it.
+fn use_domains(id: &str, value: &Value) -> Result<String> {
+    let domains = match value {
+        Value::Bool(value) => {
+            if *value {
+                "yes"
+            } else {
+                "no"
+            }
+        }
+        Value::String(value) => match value.to_ascii_lowercase().as_str() {
+            "route" => "route",
+            "true" | "yes" | "on" | "y" => "yes",
+            "false" | "no" | "off" | "n" => "no",
+            _ => bail!("invalid use-domains of {id}: {value}"),
+        },
+        value => bail!("invalid use-domains of {id}: {value:?}"),
+    };
+    Ok(domains.to_owned())
+}
+
+/// `critical`: a boolean, or what of the configuration stays, as netplan takes it, in the words of
+/// networkd's `KeepConfiguration=`, none for false.
+pub fn critical(value: &Value) -> Result<Option<String>> {
+    let value = match value {
+        Value::Bool(value) => return Ok(value.then(|| "yes".to_owned())),
+        Value::String(value) => value.to_ascii_lowercase(),
+        value => bail!("not a boolean or a string: {value:?}"),
+    };
+    let keep = match value.as_str() {
+        "true" | "on" | "yes" | "y" => "yes",
+        "false" | "off" | "no" | "n" => return Ok(None),
+        "static" => "static",
+        "dynamic" | "dhcp" => "dynamic",
+        "dynamic-on-stop" | "dhcp-on-stop" => "dynamic-on-stop",
+        _ => bail!("{value} is not a boolean or one of static, dynamic and dynamic-on-stop"),
+    };
+    Ok(Some(keep.to_owned()))
 }

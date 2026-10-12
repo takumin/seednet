@@ -75,6 +75,16 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
     if let Some(ifname) = ifname {
         let _ = writeln!(out, "interface-name={ifname}");
     }
+    // NetworkManager brings up a connection on its own unless told not to, but cannot keep the
+    // interface down.
+    match network.activation_mode.as_deref() {
+        Some("manual") => out.push_str("autoconnect=false\n"),
+        Some(mode) => warnings.push(format!(
+            "skipping the activation-mode {mode} of {}, which NetworkManager does not take",
+            network.id
+        )),
+        None => {}
+    }
     let controller = network.controller.as_deref().and_then(find);
     if let Some(controller) = controller {
         let port_type = match controller.kind {
@@ -102,8 +112,20 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
     if let Some(mtu) = network.mtu {
         let _ = writeln!(ethernet, "mtu={mtu}");
     }
+    // The magic packet that networkd's WakeOnLan=magic means, or none.
+    if let Some(wake) = network.wake_on_lan {
+        let _ = writeln!(ethernet, "wake-on-lan={}", if wake { 64 } else { 0 });
+    }
     if !ethernet.is_empty() {
         let _ = write!(out, "\n[ethernet]\n{ethernet}");
+    }
+    if !network.offloads.is_empty() {
+        out.push_str("\n[ethtool]\n");
+        for (_, key, value) in network.offloads.settings() {
+            if let Some(value) = value {
+                let _ = writeln!(out, "{key}={value}");
+            }
+        }
     }
 
     let glob = network
@@ -204,13 +226,19 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
         }
     }
 
-    if network.port_cost.is_some() || network.port_priority.is_some() {
+    let bridge_port =
+        controller.is_some_and(|controller| matches!(controller.kind, Kind::Bridge(_)));
+    let hairpin = network.hairpin.filter(|_| bridge_port);
+    if network.port_cost.is_some() || network.port_priority.is_some() || hairpin.is_some() {
         out.push_str("\n[bridge-port]\n");
         if let Some(cost) = network.port_cost {
             let _ = writeln!(out, "path-cost={cost}");
         }
         if let Some(priority) = network.port_priority {
             let _ = writeln!(out, "priority={priority}");
+        }
+        if let Some(hairpin) = hairpin {
+            let _ = writeln!(out, "hairpin-mode={hairpin}");
         }
     }
 
@@ -219,7 +247,7 @@ fn keyfile(network: &Network, networks: &[Network], warnings: &mut Vec<String>) 
         write_ip(&mut out, network, false, warnings);
         write_ip(&mut out, network, true, warnings);
     }
-    warn_unsupported(network, controller.is_none(), warnings);
+    warn_unsupported(network, controller.is_none(), bridge_port, warnings);
 
     out
 }
@@ -344,9 +372,12 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool, warnings: &mut Vec<
         .collect();
     // NetworkManager drops the routes and rules of a family that is disabled.
     if method == "disabled" {
+        let address_generation =
+            network.ipv6_address_generation.is_some() || network.ipv6_address_token.is_some();
         let skipped = [
             ("gateways and routes", !routes.is_empty()),
             ("routing policy rules", !rules.is_empty()),
+            ("address generation", ipv6 && address_generation),
         ];
         for (what, set) in skipped {
             if set {
@@ -450,6 +481,19 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool, warnings: &mut Vec<
         if let Some(mtu) = network.ipv6_mtu {
             let _ = writeln!(out, "mtu={mtu}");
         }
+        // 0 is EUI-64, which a token takes, and 1 stable privacy.
+        match (network.ipv6_address_token, network.ipv6_address_generation.as_deref()) {
+            (Some(token), _) => {
+                let _ = writeln!(out, "addr-gen-mode=0\ntoken={token}");
+            }
+            (None, Some("eui64")) => out.push_str("addr-gen-mode=0\n"),
+            (None, Some(_)) => out.push_str("addr-gen-mode=1\n"),
+            (None, None) => {}
+        }
+        // Without DHCPv6, the name servers of the router advertisements alone.
+        if !network.dhcp6 && method == "auto" && network.ra_overrides.use_dns == Some(false) {
+            out.push_str("ignore-auto-dns=true\n");
+        }
     }
 
     if !ipv6 && network.dhcp4 {
@@ -494,16 +538,46 @@ fn write_overrides(out: &mut String, network: &Network, ipv6: bool, method: &str
 
 /// Warns of what the config says that NetworkManager has no setting for, where it does not do the
 /// same on its own.
-fn warn_unsupported(network: &Network, has_addresses: bool, warnings: &mut Vec<String>) {
+fn warn_unsupported(
+    network: &Network,
+    has_addresses: bool,
+    bridge_port: bool,
+    warnings: &mut Vec<String>,
+) {
     let id = &network.id;
     let mut skip = |what: String| {
         warnings.push(format!("skipping {what} of {id}, which NetworkManager does not take"));
     };
-    if network.optional {
-        skip("optional".to_owned());
+    let unsupported = [
+        ("optional", network.optional),
+        ("emit-lldp", network.emit_lldp),
+        ("ignore-carrier", network.ignore_carrier),
+        ("port-mac-learning", bridge_port && network.port_mac_learning.is_some()),
+        ("neigh-suppress", bridge_port && network.neigh_suppress.is_some()),
+    ];
+    for (key, set) in unsupported {
+        if set {
+            skip(key.to_owned());
+        }
     }
     if !has_addresses {
         return;
+    }
+    if network.critical.is_some() {
+        skip("critical".to_owned());
+    }
+    let ra = &network.ra_overrides;
+    let unsupported = [
+        // ignore-auto-dns would drop the name servers of DHCPv6 too, and route-table would put the
+        // static routes in the table too.
+        ("use-dns with dhcp6", network.dhcp6 && ra.use_dns == Some(false)),
+        ("use-domains", ra.use_domains.as_deref().is_some_and(|d| d != "yes")),
+        ("table", ra.table.is_some()),
+    ];
+    for (key, set) in unsupported {
+        if set {
+            skip(format!("{key} of the ra-overrides"));
+        }
     }
     for options in &network.address_options {
         skip(format!("the options of the address {}", options.address));

@@ -14,10 +14,12 @@ use crate::render::{Dir, File};
 pub fn render(networks: &[Network], prefix: &str, warnings: &mut Vec<String>) -> Vec<File> {
     let mut files = Vec::new();
     for network in networks {
+        // A physical interface takes permanent and random as a policy of its .link file.
         if let Some(policy) = network
             .set_mac_address
             .as_ref()
             .filter(|mac| MAC_POLICIES.contains(&mac.as_str()))
+            .filter(|_| network.is_virtual() || mac_address_policy(network).is_none())
         {
             warnings.push(format!(
                 "skipping the macaddress {policy} of {}, which networkd does not take",
@@ -33,19 +35,51 @@ pub fn render(networks: &[Network], prefix: &str, warnings: &mut Vec<String>) ->
     files
 }
 
-/// The `.link` files of the interfaces to rename.
-pub fn links(networks: &[Network], prefix: &str) -> Vec<File> {
+/// The `.link` files of udev: of the interfaces to rename, and, with networkd, of those with the
+/// settings of a link that netplan writes there, as wake-on-LAN and the offloads, which
+/// NetworkManager takes in its keyfiles instead.
+pub fn links(networks: &[Network], prefix: &str, networkd: bool) -> Vec<File> {
     networks
         .iter()
+        .filter(|network| !network.is_virtual())
         .filter_map(|network| {
-            let name = network.set_name.as_ref()?;
+            let mut link = String::new();
+            if let Some(name) = &network.set_name {
+                let _ = writeln!(link, "Name={name}");
+            }
+            if networkd {
+                if let Some(wake) = network.wake_on_lan {
+                    let _ = writeln!(link, "WakeOnLan={}", if wake { "magic" } else { "off" });
+                }
+                if let Some(policy) = mac_address_policy(network) {
+                    let _ = writeln!(link, "MACAddressPolicy={policy}");
+                }
+                for (key, _, value) in network.offloads.settings() {
+                    if let Some(value) = value {
+                        let _ = writeln!(link, "{key}={}", yes_no(value));
+                    }
+                }
+            }
+            if link.is_empty() {
+                return None;
+            }
             let mut out = String::from(HEADER);
             out.push_str("\n[Match]\n");
             write_match(&mut out, network, "OriginalName");
-            let _ = writeln!(out, "\n[Link]\nName={name}");
+            let _ = write!(out, "\n[Link]\n{link}");
             Some(file(format!("{prefix}-{}.link", network.file_id()), out))
         })
         .collect()
+}
+
+/// The `MACAddressPolicy=` of a physical interface, for the policies that udev has.
+fn mac_address_policy(network: &Network) -> Option<&'static str> {
+    match network.set_mac_address.as_deref() {
+        _ if network.is_virtual() => None,
+        Some("permanent") => Some("persistent"),
+        Some("random") => Some("random"),
+        _ => None,
+    }
 }
 
 fn file(name: String, content: String) -> File {
@@ -180,8 +214,15 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
 
     // A created interface gets its MAC address in its .netdev.
     let mac_address = mac_address(network).filter(|_| !network.is_virtual());
-    if mac_address.is_some() || network.mtu.is_some() || optional {
+    let activation_policy = network.activation_mode.as_deref().map(|mode| match mode {
+        "manual" => "manual",
+        _ => "always-down",
+    });
+    if mac_address.is_some() || network.mtu.is_some() || optional || activation_policy.is_some() {
         out.push_str("\n[Link]\n");
+        if let Some(policy) = activation_policy {
+            let _ = writeln!(out, "ActivationPolicy={policy}");
+        }
         if let Some(mac) = mac_address {
             let _ = writeln!(out, "MACAddress={mac}");
         }
@@ -194,6 +235,9 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
     }
 
     out.push_str("\n[Network]\n");
+    if network.emit_lldp {
+        out.push_str("EmitLLDP=yes\n");
+    }
     match controller {
         // A port has no addresses of its own.
         Some(controller) => {
@@ -218,8 +262,13 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
     }
     // A created interface may be up before its ports have a carrier, as netplan has it, even as a
     // port itself.
-    if network.is_virtual() {
+    if network.is_virtual() || network.ignore_carrier {
         out.push_str("ConfigureWithoutCarrier=yes\n");
+    }
+    if controller.is_none()
+        && let Some(keep) = &network.critical
+    {
+        let _ = writeln!(out, "KeepConfiguration={keep}");
     }
 
     if controller.is_none() {
@@ -235,14 +284,28 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
         write_dhcp(&mut out, network);
     }
 
-    if network.port_cost.is_some() || network.port_priority.is_some() {
-        out.push_str("\n[Bridge]\n");
-        if let Some(cost) = network.port_cost {
-            let _ = writeln!(out, "Cost={cost}");
+    let bridge_port =
+        controller.is_some_and(|controller| matches!(controller.kind, Kind::Bridge(_)));
+    let mut port = String::new();
+    if let Some(cost) = network.port_cost {
+        let _ = writeln!(port, "Cost={cost}");
+    }
+    if let Some(priority) = network.port_priority {
+        let _ = writeln!(port, "Priority={priority}");
+    }
+    if bridge_port {
+        for (key, value) in [
+            ("HairPin", network.hairpin),
+            ("Learning", network.port_mac_learning),
+            ("NeighborSuppression", network.neigh_suppress),
+        ] {
+            if let Some(value) = value {
+                let _ = writeln!(port, "{key}={}", yes_no(value));
+            }
         }
-        if let Some(priority) = network.port_priority {
-            let _ = writeln!(out, "Priority={priority}");
-        }
+    }
+    if !port.is_empty() {
+        let _ = write!(out, "\n[Bridge]\n{port}");
     }
 
     if controller.is_none() {
@@ -277,6 +340,13 @@ fn write_addresses(out: &mut String, network: &Network) {
     if let Some(mtu) = network.ipv6_mtu {
         let _ = writeln!(out, "IPv6MTUBytes={mtu}");
     }
+    match (network.ipv6_address_token, network.ipv6_address_generation.as_deref()) {
+        (Some(token), _) => {
+            let _ = writeln!(out, "IPv6Token=static:{token}");
+        }
+        (None, Some("stable-privacy")) => out.push_str("IPv6Token=prefixstable\n"),
+        _ => {}
+    }
     // An address with options gets an [Address] section instead.
     for address in &network.addresses {
         if !network
@@ -302,7 +372,21 @@ fn write_addresses(out: &mut String, network: &Network) {
 /// netplan writes says: the overrides, with the route metric and the MTU that netplan sets when the
 /// config does not.
 fn write_dhcp(out: &mut String, network: &Network) {
+    let mut ra = String::new();
+    let ra_overrides = &network.ra_overrides;
+    if let Some(use_dns) = ra_overrides.use_dns {
+        let _ = writeln!(ra, "UseDNS={}", yes_no(use_dns));
+    }
+    if let Some(use_domains) = &ra_overrides.use_domains {
+        let _ = writeln!(ra, "UseDomains={use_domains}");
+    }
+    if let Some(table) = ra_overrides.table {
+        let _ = writeln!(ra, "RouteTable={table}");
+    }
     if !network.dhcp4 && !network.dhcp6 {
+        if !ra.is_empty() {
+            let _ = write!(out, "\n[IPv6AcceptRA]\n{ra}");
+        }
         return;
     }
     let overrides = &network.dhcp_overrides;
@@ -346,7 +430,7 @@ fn write_dhcp(out: &mut String, network: &Network) {
     }
 
     // The route metric of netplan's [DHCP] is the one of the router advertisements too.
-    let _ = writeln!(out, "\n[IPv6AcceptRA]\nRouteMetric={route_metric}");
+    let _ = write!(out, "\n[IPv6AcceptRA]\nRouteMetric={route_metric}\n{ra}");
 }
 
 fn write_rule(out: &mut String, rule: &RoutingRule) {

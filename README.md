@@ -214,9 +214,16 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | `type: vlan` (`vlan_link`, `vlan_id`) | `vlans` (`link`, `id`) | `.netdev` `Kind=vlan`, `VLAN=` | `type=vlan`, `parent=` |
 | `mac_address`, else `name` | `match` (`macaddress`, `name`, `driver` or a list of them), else the ID | `[Match]` | `mac-address=`, `interface-name=`, `[match]` |
 | `name` with `mac_address` | `set-name` | `.link` `Name=` | `.link` `Name=` |
-| `mac_address` of a bond, bridge or VLAN | `macaddress` | `MACAddress=`, but `permanent`, `random`, `stable` and `preserve` skipped | `cloned-mac-address=` |
+| `mac_address` of a bond, bridge or VLAN | `macaddress` | `MACAddress=`, or `.link` `MACAddressPolicy=` for `permanent` and `random` of a physical interface; `stable` and `preserve` skipped | `cloned-mac-address=` |
 | `mtu`, static subnet `mtu` | `mtu` | `MTUBytes=` | `mtu=` |
 | | `optional` | `RequiredForOnline=no` | skipped |
+| | `wakeonlan` | `.link` `WakeOnLan=` | `wake-on-lan=` |
+| | `receive-checksum-offload`, `transmit-checksum-offload`, `tcp-segmentation-offload`, `tcp6-segmentation-offload`, `generic-segmentation-offload`, `generic-receive-offload`, `large-receive-offload` | `.link` `ReceiveChecksumOffload=` and so on | `[ethtool]` `feature-rx=` and so on |
+| | `emit-lldp` | `EmitLLDP=` | skipped |
+| | `activation-mode` | `ActivationPolicy=` | `autoconnect=false` for `manual`; `off` skipped |
+| | `ignore-carrier` | `ConfigureWithoutCarrier=` | skipped |
+| `keep_configuration` | `critical` | `KeepConfiguration=` | skipped |
+| | `hairpin`, `port-mac-learning`, `neigh-suppress` of a bridge port | `[Bridge]` `HairPin=`, `Learning=`, `NeighborSuppression=` | `hairpin-mode=`; the others skipped |
 | subnet `dhcp`, `dhcp4`, `dhcp6`, `ipv6_slaac`, `ipv6_dhcpv6-stateless`, `ipv6_dhcpv6-stateful` | `dhcp4`, `dhcp6` | `DHCP=` | `method=auto` |
 | `accept-ra` | `accept-ra` | `IPv6AcceptRA=` | `method=auto` |
 | | `link-local` | `LinkLocalAddressing=` | `method=link-local`, or `link-local=` of IPv4 with other addresses |
@@ -228,6 +235,8 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | | `addresses` options `label`, `lifetime` | `[Address]` `Label=`, `PreferredLifetime=` | skipped |
 | | `routing-policy` | `[RoutingPolicyRule]` | `routing-rule1=`, with `priority` only |
 | | `ipv6-privacy`, `ipv6-mtu` | `IPv6PrivacyExtensions=`, `IPv6MTUBytes=` | `ip6-privacy=`, `mtu=` |
+| | `ipv6-address-generation`, `ipv6-address-token` | `IPv6Token=` | `addr-gen-mode=`, `token=` |
+| | `ra-overrides` (`use-dns`, `use-domains`, `table`) | `[IPv6AcceptRA]` | `ignore-auto-dns=` for `use-dns` without `dhcp6`; the others skipped |
 | | `dhcp4-overrides`, `dhcp6-overrides` | `[DHCPv4]`, `[DHCPv6]`, `[IPv6AcceptRA]` | see below |
 
 Version 1 is read as cloud-init converts it to version 2 for netplan:
@@ -271,7 +280,11 @@ as they are, such as IDs, names, driver globs, search domains, the DHCP hostname
 may not have white space, control characters, `;`, `,`, `\` or quotes, which would break the files.
 
 A port of a bond or bridge has no addresses of its own: its addressing, such as `dhcp4`,
-`addresses` or `nameservers`, is skipped with a warning.
+`addresses`, `nameservers` or `critical`, is skipped with a warning, as are `hairpin`,
+`port-mac-learning` and `neigh-suppress` of what is no port of a bridge. `wakeonlan`, `emit-lldp`
+and the offloads are of a physical interface. With systemd-networkd, `wakeonlan`, the offloads and
+`macaddress: permanent` or `random` of a physical interface go in its `.link` file, which udev
+applies when the interface appears, as the renames.
 
 The DHCP overrides are `use-dns`, `use-ntp`, `use-hostname`, `use-domains`, `use-mtu`,
 `use-routes`, `route-metric`, `send-hostname` and `hostname`. As netplan writes them to one

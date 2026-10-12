@@ -34,7 +34,7 @@ pub fn render(
     prefix: &str,
     warnings: &mut Vec<String>,
 ) -> Vec<File> {
-    let mut files = networkd::links(networks, prefix);
+    let mut files = networkd::links(networks, prefix, backend == Backend::Networkd);
     match backend {
         Backend::Networkd => files.extend(networkd::render(networks, prefix, warnings)),
         Backend::NetworkManager => files.extend(nm::render(networks, prefix, warnings)),
