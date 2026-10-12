@@ -89,6 +89,7 @@ check_state()
 	done
 	ls /etc/systemd/network/*cloud-init* /etc/NetworkManager/system-connections/*cloud-init* > /dev/null 2>&1 \
 		&& fail "cloud-init wrote its own network files"
+	[ -e /run/systemd/network/zzzz-dracut-default.network ] && fail "the catch-all DHCP of dracut is left"
 	ls /run/systemd/network/*netplan* /run/NetworkManager/system-connections/*netplan* > /dev/null 2>&1 \
 		&& fail "netplan wrote network files"
 	for file in /etc/sysconfig/network-scripts/ifcfg-*; do

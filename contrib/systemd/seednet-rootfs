@@ -7,6 +7,12 @@ initrd_backend=$(cat /run/seednet/backend 2>/dev/null || true)
 
 seednet --backend auto apply --stage rootfs --takeover
 
+# The catch-all DHCP of dracut 110 and later, which it leaves in /run even where seednet did not
+# bring up the network of the initrd, is for when nothing says how the network is.
+if [ -e /run/seednet/source ]; then
+	rm -f /run/systemd/network/zzzz-dracut-default.network
+fi
+
 # Rename the interfaces that the .link files say, before anything brings them up. udevd reads new
 # .link files only every few seconds, so tell it to.
 udevadm control --reload

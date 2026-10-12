@@ -15,8 +15,11 @@ if [ -e /usr/lib/systemd/system/NetworkManager-initrd.service ]; then
 	nm_unit=NetworkManager-initrd.service
 fi
 
-# The catch-all DHCP of dracut is for when nothing says how the network is.
-rm -f /etc/systemd/network/zzzz-dracut-default.network
+# The catch-all DHCP of dracut is for when nothing says how the network is: in /etc up to dracut 108,
+# in /usr/lib in 109, and in /run, which the rootfs keeps, since 110.
+rm -f /etc/systemd/network/zzzz-dracut-default.network \
+	/usr/lib/systemd/network/zzzz-dracut-default.network \
+	/run/systemd/network/zzzz-dracut-default.network
 
 if [ "${1:-}" = url ]; then
 	# NetworkManager would bring the interfaces up again as they go down, and take the networks of
