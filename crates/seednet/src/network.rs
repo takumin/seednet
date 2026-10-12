@@ -263,6 +263,39 @@ pub fn attach_ports(
     Ok(())
 }
 
+/// Warns about the addressing of a port of a bond or bridge, which takes none of its own.
+pub fn warn_port_settings(networks: &[Network], warnings: &mut Vec<String>) {
+    for network in networks {
+        let Some(controller) = &network.controller else {
+            continue;
+        };
+        let settings = [
+            ("dhcp4", network.dhcp4),
+            ("dhcp6", network.dhcp6),
+            ("dhcp-identifier", network.dhcp_identifier.is_some()),
+            ("the DHCP overrides", !network.dhcp_overrides.is_empty()),
+            ("accept-ra", network.accept_ra.is_some()),
+            ("link-local", network.link_local.is_some()),
+            ("ipv6-privacy", network.ipv6_privacy.is_some()),
+            ("ipv6-mtu", network.ipv6_mtu.is_some()),
+            ("addresses", !network.addresses.is_empty()),
+            ("gateways", !network.gateways.is_empty()),
+            ("nameservers", !network.nameservers.is_empty() || !network.search.is_empty()),
+            ("routes", !network.routes.is_empty()),
+            ("routing-policy", !network.routing_policy.is_empty()),
+        ];
+        for (key, set) in settings {
+            if set {
+                warnings.push(format!(
+                    "skipping {key} of {}, a port of {controller}, which has no addresses of its \
+                    own",
+                    network.id
+                ));
+            }
+        }
+    }
+}
+
 /// Checks what refers to another interface, once all of them are known.
 pub fn check_references(networks: &[Network]) -> Result<()> {
     for network in networks {

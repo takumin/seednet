@@ -242,6 +242,9 @@ route to an address without a prefix length is to that host alone. The values th
 as they are, such as IDs, names, driver globs, search domains, the DHCP hostname and address labels,
 may not have white space, control characters, `;`, `,`, `\` or quotes, which would break the files.
 
+A port of a bond or bridge has no addresses of its own: its addressing, such as `dhcp4`,
+`addresses` or `nameservers`, is skipped with a warning.
+
 The DHCP overrides are `use-dns`, `use-ntp`, `use-hostname`, `use-domains`, `use-mtu`,
 `use-routes`, `route-metric`, `send-hostname` and `hostname`. As netplan writes them to one
 `[DHCP]` section:

@@ -857,6 +857,26 @@ config:
 }
 
 #[test]
+fn the_addressing_of_a_port_is_warned_about() {
+    let conversion = convert(
+        "version: 2
+ethernets:
+    eth0: {dhcp4: true, nameservers: {search: [example.com]}}
+bonds:
+    bond0: {interfaces: [eth0], dhcp4: true}
+",
+    )
+    .unwrap();
+    assert_eq!(
+        conversion.warnings,
+        [
+            "skipping dhcp4 of eth0, a port of bond0, which has no addresses of its own",
+            "skipping nameservers of eth0, a port of bond0, which has no addresses of its own",
+        ]
+    );
+}
+
+#[test]
 fn v1_and_v2_convert_alike() {
     assert_eq!(
         convert(include_str!("fixtures/v1-bond-bridge-vlan.yaml")).unwrap(),

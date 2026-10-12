@@ -62,6 +62,7 @@ pub fn convert(text: &str) -> Result<Conversion> {
         _ => bail!("unsupported network-config version: {:?}", config.get("version")),
     };
     network::check_references(&networks)?;
+    network::warn_port_settings(&networks, &mut warnings);
     for network in &networks {
         network.check_values()?;
         if let Some(name) = network.ifname() {
