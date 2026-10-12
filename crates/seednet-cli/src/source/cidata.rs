@@ -29,7 +29,7 @@ pub fn present(sysroot: &Path) -> bool {
 }
 
 /// Waits up to `timeout` for the disk, and reads its network-config. Neither the disk nor the file
-/// being there is an error.
+/// being there is an error, nor a disk that mounts as neither vfat nor iso9660.
 pub fn read(sysroot: &Path, timeout: Duration) -> Result<Option<String>> {
     let deadline = Instant::now() + timeout;
     let device = loop {
@@ -42,10 +42,21 @@ pub fn read(sysroot: &Path, timeout: Duration) -> Result<Option<String>> {
         thread::sleep(POLL_INTERVAL);
     };
 
+    // The rootfs may have the disk mounted already, which another mount of it could not change to
+    // read-only.
+    if let Some(mounted) = mounted_at(sysroot, &device) {
+        return read_dir(&mounted);
+    }
+
     let mount_point = sysroot.join(MOUNT_POINT);
     fs::create_dir_all(&mount_point)
         .with_context(|| format!("failed to create {}", mount_point.display()))?;
-    mount(&device, &mount_point)?;
+    // A disk that is not one cloud-init reads is not the CIDATA disk, as cloud-init has it.
+    if let Err(error) = mount(&device, &mount_point) {
+        crate::warn(&format!("skipping the CIDATA disk: {error:#}"));
+        let _ = fs::remove_dir(&mount_point);
+        return Ok(None);
+    }
 
     let text = read_dir(&mount_point);
     rustix::mount::unmount(&mount_point, UnmountFlags::empty())
@@ -53,6 +64,22 @@ pub fn read(sysroot: &Path, timeout: Duration) -> Result<Option<String>> {
     // Only an empty directory goes, so this never takes the files of a mount that is still there.
     let _ = fs::remove_dir(&mount_point);
     text
+}
+
+/// Where the disk is mounted already, if it is, by its device number.
+fn mounted_at(sysroot: &Path, device: &Path) -> Option<PathBuf> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let rdev = fs::metadata(device).ok()?.rdev();
+    let number = format!("{}:{}", rustix::fs::major(rdev), rustix::fs::minor(rdev));
+    let mountinfo = fs::read_to_string(sysroot.join("proc/self/mountinfo")).ok()?;
+    mountinfo.lines().find_map(|line| {
+        let mut fields = line.split(' ');
+        let (device, root, mount_point) = (fields.nth(2)?, fields.next()?, fields.next()?);
+        // The whole file system, not a directory of it bound elsewhere.
+        (device == number && root == "/")
+            .then(|| sysroot.join(super::netrootfs::unescape(mount_point).trim_start_matches('/')))
+    })
 }
 
 /// Reads the network-config of a directory with the CIDATA files.

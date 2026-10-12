@@ -79,7 +79,8 @@ disk says. Seednet itself never writes to `/etc`.
 - `rd.seednet.timeout=<SECONDS>`: how long to wait for the CIDATA disk (default: 5).
 
 The CIDATA disk is the one labelled `cidata` or `CIDATA`, as `vfat` or `iso9660`, as cloud-init
-looks for it. It is mounted read-only while it is read.
+looks for it. It is mounted read-only while it is read, or read where it is mounted already. A disk
+with the label that mounts as neither is skipped with a warning, as cloud-init skips it.
 
 An `https` URL is verified against the system CA bundle only (`/etc/ssl/certs/ca-certificates.crt`,
 `/etc/pki/tls/certs/ca-bundle.crt`, `/etc/ssl/ca-bundle.pem` or `/etc/ssl/cert.pem`), so the initrd

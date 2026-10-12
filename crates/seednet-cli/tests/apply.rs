@@ -558,3 +558,16 @@ fn convert_writes_one_config() {
     assert_eq!(sysroot.networks(), ["10-seednet-eth0.network"]);
     assert!(String::from_utf8_lossy(&output.stdout).ends_with("10-seednet-eth0.network\n"));
 }
+
+#[test]
+fn a_cidata_disk_that_does_not_mount_is_skipped() {
+    let sysroot = Sysroot::new("ro");
+    // Not a block device, so it mounts as neither vfat nor iso9660.
+    sysroot.write("dev/disk/by-label/cidata", "");
+
+    let output = sysroot.seednet(&["apply", "--stage", "initrd"]);
+    assert_success(&output);
+    assert!(stderr(&output).contains("skipping the CIDATA disk"));
+    assert!(sysroot.networks().is_empty());
+    assert!(!sysroot.path("run/seednet/cidata").exists());
+}
