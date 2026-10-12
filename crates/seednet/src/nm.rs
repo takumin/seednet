@@ -8,6 +8,16 @@ use sha1::Digest as _;
 use crate::network::{DhcpOverrides, HEADER, Kind, MAC_POLICIES, Network, Route};
 use crate::render::{Dir, File};
 
+/// The route types that NetworkManager takes.
+const ROUTE_TYPES: &[&str] = &[
+    "unicast",
+    "local",
+    "blackhole",
+    "unreachable",
+    "prohibit",
+    "throw",
+];
+
 /// One keyfile per network.
 pub fn render(networks: &[Network], prefix: &str, warnings: &mut Vec<String>) -> Vec<File> {
     networks
@@ -334,14 +344,32 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool, warnings: &mut Vec<
         return;
     }
 
-    for (i, route) in routes.iter().enumerate() {
-        let n = i + 1;
+    let mut n = 0;
+    for route in routes {
+        if !ROUTE_TYPES.contains(&route.route_type.as_str()) {
+            warnings.push(format!(
+                "skipping the {} route to {} of {id}, which NetworkManager does not take",
+                route.route_type, route.destination
+            ));
+            continue;
+        }
+        if route.scope == "host" {
+            warnings.push(format!(
+                "skipping the scope host of the route to {} of {id}, which NetworkManager does \
+                not take",
+                route.destination
+            ));
+        }
+        n += 1;
         let mut line = route.destination.to_string();
-        if let Some(gateway) = route.gateway {
+        // NetworkManager gives a route the scope of whether it has a gateway, so one of another
+        // scope goes without, as netplan writes it.
+        let gateway = route.gateway.filter(|_| route.scope == "global");
+        if let Some(gateway) = gateway {
             let _ = write!(line, ",{gateway}");
         }
         if let Some(metric) = route.metric {
-            if route.gateway.is_none() {
+            if gateway.is_none() {
                 line.push(',');
             }
             let _ = write!(line, ",{metric}");
@@ -349,11 +377,28 @@ fn write_ip(out: &mut String, network: &Network, ipv6: bool, warnings: &mut Vec<
         let _ = writeln!(out, "route{n}={line}");
 
         let mut options = Vec::new();
+        if route.route_type != "unicast" {
+            options.push(format!("type={}", route.route_type));
+        }
         if let Some(table) = route.table {
             options.push(format!("table={table}"));
         }
         if route.on_link {
             options.push("onlink=true".to_owned());
+        }
+        if let Some(from) = route.from {
+            options.push(format!("src={from}"));
+        }
+        let numbers = [
+            ("mtu", route.mtu),
+            ("initcwnd", route.congestion_window),
+            ("initrwnd", route.advertised_receive_window),
+            ("advmss", route.advertised_mss),
+        ];
+        for (key, value) in numbers {
+            if let Some(value) = value {
+                options.push(format!("{key}={value}"));
+            }
         }
         if !options.is_empty() {
             let _ = writeln!(out, "route{n}_options={}", options.join(","));

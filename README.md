@@ -193,8 +193,8 @@ labels of the policy as systemd and the directories give them, and need no `rest
 ## Supported config
 
 Both [version 1] and [version 2] are supported, nested under `network:` or as the whole document:
-physical interfaces, bonds, bridges and VLANs. Other types, such as Wi-Fi and tunnels, the keys
-that are not below, and the routes of a `type` other than `unicast` are skipped with a warning.
+physical interfaces, bonds, bridges and VLANs. Other types, such as Wi-Fi and tunnels, and the keys
+that are not below are skipped with a warning.
 `renderer` is ignored, since seednet is the renderer.
 
 A key means what it does in netplan with systemd-networkd, which is how cloud-init brings up the
@@ -224,7 +224,7 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | subnet `static`, `static6` (`address`, `netmask`, `prefix`) | `addresses` | `Address=` | `address1=` |
 | static subnet `gateway` | `gateway4`, `gateway6` | `Gateway=`, or `[Route]` in version 1 | `gateway=`, or `route1=` in version 1, for a gateway beyond the first, without an address of its family, or with `use-routes: false` |
 | subnet `dns_nameservers`, `dns_search`, `type: nameserver` | `nameservers` | `DNS=`, `Domains=` | `dns=`, `dns-search=` |
-| static subnet `routes`, `type: route` | `routes` (`to`, `via`, `metric`, `on-link`, `table`) | `[Route]` | `route1=` |
+| static subnet `routes`, `type: route` | `routes` (`to`, `via`, `from`, `metric`, `on-link`, `table`, `scope`, `type`, `mtu`, `congestion-window`, `advertised-receive-window`, `advertised-mss`) | `[Route]` | `route1=`, `route1_options=`, but a `type` of `anycast`, `broadcast`, `multicast`, `nat` or `xresolve`, and `scope: host`, skipped |
 | | `addresses` options `label`, `lifetime` | `[Address]` `Label=`, `PreferredLifetime=` | skipped |
 | | `routing-policy` | `[RoutingPolicyRule]` | `routing-rule1=`, with `priority` only |
 | | `ipv6-privacy`, `ipv6-mtu` | `IPv6PrivacyExtensions=`, `IPv6MTUBytes=` | `ip6-privacy=`, `mtu=` |
@@ -262,7 +262,9 @@ even empty ones, has STP on unless they say `stp: false`, as netplan has it, and
 
 The config fails, as netplan does, on an address without its prefix length, a route without `to`
 or to `default` without `via`, whose family it would not know, and a MAC address that is none. A
-route to an address without a prefix length is to that host alone. The values that go in the files
+route to an address without a prefix length is to that host alone. A route without `via` has the
+scope `link`, as a `local` or `nat` one has `host`, unless it says its `scope`, and a `unicast` one
+of the scope `global` needs `via`. The values that go in the files
 as they are, such as IDs, names, driver globs, search domains, the DHCP hostname and address labels,
 may not have white space, control characters, `;`, `,`, `\` or quotes, which would break the files.
 

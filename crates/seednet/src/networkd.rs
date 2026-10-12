@@ -363,14 +363,30 @@ fn write_route(out: &mut String, route: &Route) {
     if let Some(gateway) = &route.gateway {
         let _ = writeln!(out, "Gateway={gateway}");
     }
+    if let Some(from) = &route.from {
+        let _ = writeln!(out, "PreferredSource={from}");
+    }
+    if route.scope != "global" {
+        let _ = writeln!(out, "Scope={}", route.scope);
+    }
+    if route.route_type != "unicast" {
+        let _ = writeln!(out, "Type={}", route.route_type);
+    }
     if route.on_link {
         out.push_str("GatewayOnLink=yes\n");
     }
-    if let Some(metric) = route.metric {
-        let _ = writeln!(out, "Metric={metric}");
-    }
-    if let Some(table) = route.table {
-        let _ = writeln!(out, "Table={table}");
+    let numbers = [
+        ("Metric", route.metric),
+        ("Table", route.table),
+        ("MTUBytes", route.mtu),
+        ("InitialCongestionWindow", route.congestion_window),
+        ("InitialAdvertisedReceiveWindow", route.advertised_receive_window),
+        ("TCPAdvertisedMaximumSegmentSize", route.advertised_mss),
+    ];
+    for (key, value) in numbers {
+        if let Some(value) = value {
+            let _ = writeln!(out, "{key}={value}");
+        }
     }
 }
 

@@ -471,11 +471,8 @@ fn route_of(route: &SubnetRoute) -> Result<Route> {
     };
 
     Ok(Route {
-        destination,
-        gateway,
         metric: route.metric,
-        on_link: false,
-        table: None,
+        ..Route::to(destination, gateway)
     })
 }
 

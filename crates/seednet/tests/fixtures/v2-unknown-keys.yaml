@@ -11,6 +11,6 @@ ethernets:
     - 192.0.2.10/24: {label: eth0-a, valid-lifetime: 0}
     nameservers: {addresses: [192.0.2.53], options: [edns0]}
     routes:
-    - {to: 198.51.100.0/24, via: 192.0.2.1, from: 192.0.2.10}
+    - {to: 198.51.100.0/24, via: 192.0.2.1, protocol: kernel}
     - {to: 203.0.113.0/24, type: blackhole}
     - {to: 10.0.0.0/8, via: 192.0.2.1, type: unicast}

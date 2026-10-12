@@ -1,0 +1,51 @@
+---
+version: 2
+ethernets:
+  eth0:
+    match: {macaddress: "52:54:00:00:00:10"}
+    wakeonlan: true
+    emit-lldp: true
+    receive-checksum-offload: false
+    tcp-segmentation-offload: true
+    macaddress: permanent
+    activation-mode: manual
+    ignore-carrier: true
+    critical: dynamic-on-stop
+    dhcp4: true
+    accept-ra: true
+    ipv6-address-token: "::42"
+    ra-overrides: {use-dns: false, use-domains: route, table: 120}
+    routes:
+    - {to: 198.51.100.0/24, via: 192.0.2.1, from: 192.0.2.10, mtu: 1400, congestion-window: 10, advertised-receive-window: 20, advertised-mss: 1300}
+    - {to: 203.0.113.0/24, type: blackhole}
+    - {to: 203.0.113.128/25, type: nat}
+    - {to: 192.0.2.128/25, scope: host}
+  eth1:
+    match: {name: eth1}
+    hairpin: true
+    port-mac-learning: false
+    neigh-suppress: true
+  eth2:
+    match: {name: eth2}
+    ipv6-address-generation: stable-privacy
+    accept-ra: true
+bonds:
+  bond0:
+    interfaces: [eth2]
+    parameters:
+      mode: active-backup
+      all-members-active: true
+      arp-interval: 100
+      arp-ip-targets: [192.0.2.1]
+      arp-validate: all
+      arp-all-targets: all
+      gratuitous-arp: 3
+      primary-reselect-policy: better
+      resend-igmp: 2
+      learn-packet-interval: 5
+  bond1:
+    parameters: {mode: balance-rr, packets-per-member: 4}
+bridges:
+  br0:
+    interfaces: [eth1]
+    activation-mode: "off"

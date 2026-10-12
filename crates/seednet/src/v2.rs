@@ -182,15 +182,42 @@ struct Nameservers {
 struct RouteConfig {
     to: Option<String>,
     via: Option<String>,
+    from: Option<String>,
     #[serde(default, deserialize_with = "lenient::opt_u32")]
     metric: Option<u32>,
     #[serde(default, deserialize_with = "lenient::opt_bool")]
     on_link: Option<bool>,
     #[serde(default, deserialize_with = "lenient::opt_u32")]
     table: Option<u32>,
+    scope: Option<String>,
+    #[serde(rename = "type")]
+    route_type: Option<String>,
+    #[serde(default, deserialize_with = "lenient::opt_u32")]
+    mtu: Option<u32>,
+    #[serde(default, deserialize_with = "lenient::opt_u32")]
+    congestion_window: Option<u32>,
+    #[serde(default, deserialize_with = "lenient::opt_u32")]
+    advertised_receive_window: Option<u32>,
+    #[serde(default, deserialize_with = "lenient::opt_u32")]
+    advertised_mss: Option<u32>,
     #[serde(flatten)]
     rest: Rest,
 }
+
+/// The route types that netplan takes.
+const ROUTE_TYPES: &[&str] = &[
+    "unicast",
+    "anycast",
+    "blackhole",
+    "broadcast",
+    "local",
+    "multicast",
+    "nat",
+    "prohibit",
+    "throw",
+    "unreachable",
+    "xresolve",
+];
 
 pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>> {
     for kind in UNSUPPORTED {
@@ -386,42 +413,10 @@ fn network(
         }
     }
 
-    for mut route in common.routes {
-        // A route of another type, such as blackhole, would be a unicast one without it.
-        if let Some(kind) = route.rest.remove("type")
-            && kind.as_str() != Some("unicast")
-        {
-            let kind = kind.as_str().unwrap_or("?");
-            warnings.push(format!("skipping a {kind} route of {}", network.id));
-            continue;
-        }
+    for route in common.routes {
         let what = format!("a route of {}", network.id);
         lenient::warn_unknown(&route.rest, &what, warnings);
-        let gateway = route.via.as_deref().map(parse_addr).transpose()?;
-        // `default` takes the family of the gateway, and a bare address is a route to that host.
-        let destination = match route.to.as_deref().map(str::trim) {
-            None => bail!("{what} has no to"),
-            Some("default") => match gateway {
-                Some(gateway) => Cidr::default_route(gateway.is_ipv6()),
-                None => bail!("{what} to default has no via, which would tell its family"),
-            },
-            Some(to) => Cidr::parse_host_or_network(to)?,
-        };
-        if let Some(gateway) = gateway
-            && gateway.is_ipv6() != destination.addr.is_ipv6()
-        {
-            bail!("{what} has to and via of different families");
-        }
-        push_unique(
-            &mut network.routes,
-            Route {
-                destination,
-                gateway,
-                metric: route.metric,
-                on_link: route.on_link.unwrap_or(false),
-                table: route.table,
-            },
-        );
+        push_unique(&mut network.routes, route_of(route, &what)?);
     }
 
     for rule in common.routing_policy {
@@ -461,6 +456,61 @@ fn network(
     }
 
     Ok(network)
+}
+
+/// A route, as netplan reads it.
+fn route_of(route: RouteConfig, what: &str) -> Result<Route> {
+    let gateway = route.via.as_deref().map(parse_addr).transpose()?;
+    // `default` takes the family of the gateway, and a bare address is a route to that host.
+    let destination = match route.to.as_deref().map(str::trim) {
+        None => bail!("{what} has no to"),
+        Some("default") => match gateway {
+            Some(gateway) => Cidr::default_route(gateway.is_ipv6()),
+            None => bail!("{what} to default has no via, which would tell its family"),
+        },
+        Some(to) => Cidr::parse_host_or_network(to)?,
+    };
+    let from = route.from.as_deref().map(parse_addr).transpose()?;
+    for address in [gateway, from].into_iter().flatten() {
+        if address.is_ipv6() != destination.addr.is_ipv6() {
+            bail!("{what} has addresses of different families");
+        }
+    }
+
+    let route_type = route.route_type.unwrap_or_else(|| "unicast".to_owned());
+    if !ROUTE_TYPES.contains(&route_type.as_str()) {
+        bail!("invalid type of {what}: {route_type}");
+    }
+    // The scope that netplan gives a route that says none.
+    let scope = match route.scope {
+        Some(scope) if matches!(scope.as_str(), "global" | "link" | "host") => scope,
+        Some(scope) => bail!("invalid scope of {what}: {scope}, not global, link or host"),
+        None if matches!(route_type.as_str(), "local" | "nat") => "host".to_owned(),
+        None if route_type == "unicast" && gateway.is_none()
+            || matches!(route_type.as_str(), "broadcast" | "multicast" | "anycast") =>
+        {
+            "link".to_owned()
+        }
+        None => "global".to_owned(),
+    };
+    if route_type == "unicast" && scope == "global" && gateway.is_none() {
+        bail!("{what} is a global unicast route without via");
+    }
+
+    Ok(Route {
+        destination,
+        gateway,
+        from,
+        metric: route.metric,
+        on_link: route.on_link.unwrap_or(false),
+        table: route.table,
+        scope,
+        route_type,
+        mtu: route.mtu,
+        congestion_window: route.congestion_window,
+        advertised_receive_window: route.advertised_receive_window,
+        advertised_mss: route.advertised_mss,
+    })
 }
 
 /// The overrides of both DHCPv4 and DHCPv6, as netplan takes them with networkd: those of the one

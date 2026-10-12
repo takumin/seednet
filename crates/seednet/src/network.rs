@@ -168,20 +168,42 @@ pub struct Route {
     /// `0.0.0.0/0` or `::/0` for a default route, which tells its family as netplan writes it.
     pub destination: Cidr,
     pub gateway: Option<IpAddr>,
+    /// The source address that the route prefers.
+    pub from: Option<IpAddr>,
     pub metric: Option<u32>,
     pub on_link: bool,
     pub table: Option<u32>,
+    /// `global`, `link` or `host`, which netplan has `link` for a unicast route without a gateway.
+    pub scope: String,
+    /// `unicast`, or another type such as `blackhole`.
+    pub route_type: String,
+    pub mtu: Option<u32>,
+    pub congestion_window: Option<u32>,
+    pub advertised_receive_window: Option<u32>,
+    pub advertised_mss: Option<u32>,
 }
 
 impl Route {
     /// The default route via `gateway`.
     pub fn default_via(gateway: IpAddr) -> Self {
+        Self::to(Cidr::default_route(gateway.is_ipv6()), Some(gateway))
+    }
+
+    /// A unicast route, of the scope that netplan gives it.
+    pub fn to(destination: Cidr, gateway: Option<IpAddr>) -> Self {
         Self {
-            destination: Cidr::default_route(gateway.is_ipv6()),
-            gateway: Some(gateway),
+            destination,
+            gateway,
+            from: None,
             metric: None,
             on_link: false,
             table: None,
+            scope: if gateway.is_some() { "global" } else { "link" }.to_owned(),
+            route_type: "unicast".to_owned(),
+            mtu: None,
+            congestion_window: None,
+            advertised_receive_window: None,
+            advertised_mss: None,
         }
     }
 }

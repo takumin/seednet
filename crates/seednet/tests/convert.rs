@@ -250,17 +250,15 @@ fn unknown_keys_are_returned_as_warnings() {
             "skipping the dhcp4-overrides of eth0, without dhcp4",
             "skipping the unsupported key valid-lifetime of the address 192.0.2.10/24 of eth0",
             "skipping the unsupported key options of the nameservers of eth0",
-            "skipping the unsupported key from of a route of eth0",
-            "skipping a blackhole route of eth0",
+            "skipping the unsupported key protocol of a route of eth0",
         ]
     );
-    // The blackhole route is not made a route on the link.
     let destinations: Vec<_> = conversion.networks[0]
         .routes
         .iter()
         .map(|route| route.destination.to_string())
         .collect();
-    assert_eq!(destinations, ["198.51.100.0/24", "10.0.0.0/8"]);
+    assert_eq!(destinations, ["198.51.100.0/24", "203.0.113.0/24", "10.0.0.0/8"]);
 
     let v1 = include_str!("fixtures/v1-unknown-keys.yaml");
     assert_eq!(
@@ -754,8 +752,8 @@ ethernets:
     let networkd = &render(v2)[0].1;
     for route in [
         "[Route]\nDestination=0.0.0.0/0\nGateway=192.0.2.1\n",
-        "[Route]\nDestination=::/0\n",
-        "[Route]\nDestination=0.0.0.0/0\nTable=100\n",
+        "[Route]\nDestination=::/0\nScope=link\n",
+        "[Route]\nDestination=0.0.0.0/0\nScope=link\nTable=100\n",
         "[Route]\nDestination=198.51.100.7/32\nGateway=192.0.2.254\n",
     ] {
         assert!(networkd.contains(route), "{route}\n{networkd}");
@@ -896,6 +894,51 @@ config:
     assert!(files[0].1.contains("Gateway=192.0.2.1\n\n"), "{}", files[0].1);
     // A route keeps its metric of 0.
     assert!(files[0].1.contains("Gateway=192.0.2.2\nMetric=0\n"), "{}", files[0].1);
+}
+
+#[test]
+fn device_route_and_bond_keys() {
+    let config = include_str!("fixtures/v2-device-keys.yaml");
+    let networkd: std::collections::HashMap<_, _> =
+        files(config, Backend::Networkd).into_iter().collect();
+    let has = |name: &str, part: &str| {
+        let content = &networkd[name];
+        assert!(content.contains(part), "{name}: {part}\n{content}");
+    };
+    has(
+        "10-seednet-eth0.network",
+        "Gateway=192.0.2.1\nPreferredSource=192.0.2.10\nMTUBytes=1400\n\
+        InitialCongestionWindow=10\nInitialAdvertisedReceiveWindow=20\n\
+        TCPAdvertisedMaximumSegmentSize=1300\n",
+    );
+    has("10-seednet-eth0.network", "Destination=203.0.113.0/24\nType=blackhole\n");
+    has(
+        "10-seednet-eth0.network",
+        "Destination=203.0.113.128/25\nScope=host\nType=nat\n",
+    );
+
+    let (nm, warnings) = render_nm(config);
+    let has = |i: usize, part: &str| assert!(nm[i].contains(part), "{part}\n{}", nm[i]);
+    has(
+        0,
+        "route1_options=src=192.0.2.10,mtu=1400,initcwnd=10,initrwnd=20,advmss=1300\n",
+    );
+    has(0, "route2=203.0.113.0/24\nroute2_options=type=blackhole\n");
+    for warning in [
+        "skipping the nat route to 203.0.113.128/25 of eth0",
+        "skipping the scope host of the route to 192.0.2.128/25 of eth0",
+    ] {
+        assert!(warnings.iter().any(|w| w.starts_with(warning)), "{warning}: {warnings:?}");
+    }
+
+    for invalid in [
+        "    routes: [{to: 198.51.100.0/24, scope: global}]\n",
+        "    routes: [{to: 198.51.100.0/24, via: 192.0.2.1, type: bogus}]\n",
+        "    routes: [{to: 198.51.100.0/24, via: 192.0.2.1, from: \"2001:db8::1\"}]\n",
+    ] {
+        let config = format!("version: 2\nethernets:\n  eth0:\n{invalid}");
+        assert!(convert(&config).is_err(), "{invalid}");
+    }
 }
 
 #[test]
