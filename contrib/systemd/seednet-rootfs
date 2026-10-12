@@ -18,7 +18,8 @@ udevadm settle
 # the rootfs is on the network over them. VLANs go first, then bridges, then bonds, so that what goes
 # is never under something still there. What the NetworkManager of an initrd made, NetworkManager
 # takes over itself, and would not bring the ports of a bond made afresh into it.
-if [ "$(cat /run/seednet/backend 2>/dev/null)" = network-manager ] &&
+rootfs_backend=$(cat /run/seednet/backend 2>/dev/null || true)
+if [ "$rootfs_backend" = network-manager ] &&
 	[ "$initrd_backend" != network-manager ] &&
 	[ ! -e /run/seednet/network-rootfs ]; then
 	for dev in /proc/net/vlan/* /sys/class/net/*/bridge /sys/class/net/*/bonding; do
@@ -31,5 +32,18 @@ if [ "$(cat /run/seednet/backend 2>/dev/null)" = network-manager ] &&
 			;;
 		esac
 		ip link delete "$name"
+	done
+fi
+
+# networkd takes over what the NetworkManager of the initrd made, but for the IPv6 link-local
+# address of the MAC address that NetworkManager gave a bridge or a bond, which stays when networkd
+# gives it another, and so goes, for networkd to give the one of its own.
+if [ "$rootfs_backend" = networkd ] &&
+	[ "$initrd_backend" = network-manager ] &&
+	[ ! -e /run/seednet/network-rootfs ]; then
+	for dev in /sys/class/net/*/bridge /sys/class/net/*/bonding; do
+		[ -e "$dev" ] || continue
+		name=${dev%/*}
+		ip -6 address flush dev "${name##*/}" scope link
 	done
 fi

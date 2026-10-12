@@ -181,8 +181,11 @@ $ systemctl enable seednet.service
 
 It runs `seednet --backend auto apply --stage rootfs --takeover`, so the rootfs keeps the config of the
 initrd, or uses `/etc/seednet/network-config` or the CIDATA disk, and renames the interfaces. When
-the rootfs uses NetworkManager, it deletes the bonds, bridges and VLANs of the initrd, which
-NetworkManager cannot change while they have ports, unless the rootfs is on the network.
+the rootfs uses NetworkManager after an initrd without it, it deletes the bonds, bridges and VLANs
+of the initrd, which NetworkManager cannot change while they have ports, unless the rootfs is on the
+network. When it uses systemd-networkd after an initrd with NetworkManager, it removes the IPv6
+link-local addresses of the bonds and bridges, which would stay along with the ones of the MAC
+addresses that systemd-networkd gives them.
 
 With SELinux, as on Fedora and Enterprise Linux, the files that seednet writes in `/run` take the
 labels of the policy as systemd and the directories give them, and need no `restorecon`.
