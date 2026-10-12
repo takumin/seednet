@@ -1,0 +1,23 @@
+# Fetches the config of seednet.url over the DHCP network of dracut, then brings up the network the
+# way it says, before the initqueue reaches for the rootfs over it. A fetch that fails fails the boot.
+[Unit]
+Description=Network configuration from the NoCloud network-config at seednet.url
+DefaultDependencies=no
+ConditionPathExists=/run/seednet/neednet
+ConditionKernelCommandLine=seednet.url
+After=dracut-cmdline.service systemd-udev-trigger.service
+After=systemd-networkd.service nm-initrd.service NetworkManager-initrd.service
+Before=dracut-initqueue.service
+Wants=systemd-networkd.service nm-initrd.service NetworkManager-initrd.service
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Say why on the console too, since a failure ends in the emergency shell.
+StandardError=journal+console
+ExecStart=/usr/libexec/seednet-initrd url
+
+[Install]
+WantedBy=initrd.target

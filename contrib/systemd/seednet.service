@@ -1,0 +1,20 @@
+# Brings up the network of the rootfs from the NoCloud network-config, and keeps cloud-init,
+# netplan and NetworkManager from configuring it themselves. Install seednet as /usr/bin/seednet,
+# and seednet-rootfs as /usr/libexec/seednet-rootfs.
+[Unit]
+Description=Network configuration from the NoCloud network-config
+Documentation=https://github.com/takumin/seednet
+DefaultDependencies=no
+After=local-fs.target systemd-udev-trigger.service
+Before=network-pre.target systemd-networkd.service NetworkManager.service cloud-init-local.service
+Before=shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/seednet-rootfs
+
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Brings up the network of the rootfs from the NoCloud network-config, as seednet.service runs it.
+set -eu
+
+# The backend of the initrd, before seednet writes the one of the rootfs over it.
+initrd_backend=$(cat /run/seednet/backend 2>/dev/null || true)
+
+seednet --backend auto apply --stage rootfs --takeover
+
+# Rename the interfaces that the .link files say, before anything brings them up. udevd reads new
+# .link files only every few seconds, so tell it to.
+udevadm control --reload
+udevadm trigger --action=add --subsystem-match=net
+udevadm settle
+
+# NetworkManager cannot change a bond that has ports, and may take a bridge or a VLAN it finds for
+# an external connection, so it gets the ones that the networkd of the initrd made afresh, unless
+# the rootfs is on the network over them. VLANs go first, then bridges, then bonds, so that what goes
+# is never under something still there. What the NetworkManager of an initrd made, NetworkManager
+# takes over itself, and would not bring the ports of a bond made afresh into it.
+if [ "$(cat /run/seednet/backend 2>/dev/null)" = network-manager ] &&
+	[ "$initrd_backend" != network-manager ] &&
+	[ ! -e /run/seednet/network-rootfs ]; then
+	for dev in /proc/net/vlan/* /sys/class/net/*/bridge /sys/class/net/*/bonding; do
+		[ -e "$dev" ] && [ "$dev" != /proc/net/vlan/config ] || continue
+		case $dev in
+		/proc/net/vlan/*) name=${dev##*/} ;;
+		*)
+			name=${dev%/*}
+			name=${name##*/}
+			;;
+		esac
+		ip link delete "$name"
+	done
+fi

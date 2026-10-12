@@ -1,0 +1,23 @@
+# Writes the network of the initrd before systemd-networkd or NetworkManager starts, from a config on
+# the kernel command line or the CIDATA disk.
+[Unit]
+Description=Network configuration from the NoCloud network-config
+DefaultDependencies=no
+ConditionPathExists=/run/seednet/neednet
+ConditionKernelCommandLine=!seednet.url
+After=dracut-cmdline.service systemd-udev-trigger.service
+Before=systemd-networkd.service nm-initrd.service NetworkManager-initrd.service
+Before=network-pre.target dracut-initqueue.service
+Wants=network-pre.target
+OnFailure=emergency.target
+OnFailureJobMode=isolate
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Say why on the console too, since a failure ends in the emergency shell.
+StandardError=journal+console
+ExecStart=/usr/libexec/seednet-initrd
+
+[Install]
+WantedBy=initrd.target
