@@ -164,7 +164,9 @@ puts it there.
 
 Either way, a config replaces the catch-all DHCP of dracut, and a failure ends in the emergency
 shell. The module brings the bonding, bridge, 8021q, vfat and iso9660 modules, and the CA bundle
-of the system for an `https` URL. It also brings systemd-resolved when the system has it, which a
+of the system for an `https` URL. It keeps the bonding module from making a `bond0` of its own, as
+systemd does, for the modprobe of busybox too, which dracut 112 of Debian and Ubuntu puts in the
+initrd when the system has busybox. It also brings systemd-resolved when the system has it, which a
 host name in `seednet.url=` or `root=live:...` needs with systemd-networkd: without it, the initrd
 cannot resolve host names, and dracut says so. NetworkManager writes `/etc/resolv.conf` itself.
 

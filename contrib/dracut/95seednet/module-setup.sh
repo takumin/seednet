@@ -36,6 +36,10 @@ install()
 		return 1
 	fi
 	inst_multiple seednet udevadm ip
+	# The bonding module makes a bond0 of its own in balance-rr, which a bond0 of the config cannot be
+	# made over, but for the max_bonds=0 of systemd in /usr/lib/modprobe.d. The modprobe of busybox,
+	# which dracut 112 of Debian and Ubuntu takes when it can, reads /etc/modprobe.d alone.
+	inst_simple "$moddir/seednet-modprobe.conf" /etc/modprobe.d/seednet.conf
 	# NetworkManager writes /etc/resolv.conf itself.
 	if ! dracut_module_included network-manager \
 		&& [[ ! -x $dracutsysrootdir$systemdutildir/systemd-resolved ]]; then
