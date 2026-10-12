@@ -597,3 +597,22 @@ fn initrd_reads_the_cmdline_of_dracut_too() {
     assert_eq!(sysroot.networks(), ["10-seednet-eth1.network"]);
     assert_eq!(sysroot.read("run/seednet/source"), format!("{url}\n"));
 }
+
+#[test]
+fn networkd_files_are_readable_whatever_the_umask() {
+    let sysroot = Sysroot::new("ro");
+    sysroot.write("network-config", CONFIG);
+
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(r#"umask 077 && exec "$0" --sysroot "$1" convert "$1/network-config""#)
+        .arg(env!("CARGO_BIN_EXE_seednet"))
+        .arg(sysroot.path(""))
+        .output()
+        .unwrap();
+    assert_success(&output);
+    assert_eq!(mode(&sysroot.path("run/systemd/network")), 0o755);
+    assert_eq!(mode(&sysroot.path("run/systemd/network/10-seednet-eth0.network")), 0o644);
+    // Nothing is left under a hidden name.
+    assert_eq!(sysroot.networks(), ["10-seednet-eth0.network"]);
+}
