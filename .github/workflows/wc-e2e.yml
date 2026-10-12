@@ -6,9 +6,6 @@ permissions: {}
 defaults:
   run:
     shell: bash -euo pipefail {0}
-concurrency:
-  group: e2e-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 env:
   AQUA_GLOBAL_CONFIG: ${{ github.workspace }}/.aqua/aqua.yaml
 jobs:

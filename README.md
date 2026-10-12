@@ -388,8 +388,8 @@ labels of their files, which `e2e/disks.sh` puts on the disks, since `podman exp
 | `https` | As `url` and `live` at once, by a host name over HTTPS: the initrd fetches `seednet.url` with the name server of DHCP, then the live rootfs with the one of the config. The image trusts a CA of the tests, and the name server of the tests runs with passt in a network namespace of its own. |
 | `badsum` | As `url`, with a `seednet.checksum` that the config does not have: the boot must stop in the emergency shell of the initrd, saying why. |
 
-They boot guests of the architecture of the host, x86_64 or aarch64, as CI does on `ubuntu-26.04`
-(the arm runners of GitHub have no KVM), and need KVM, podman, passt with vhost-user, cloud-hypervisor (which `task`
+They boot guests of the architecture of the host, x86_64 or aarch64, as the E2E workflow does every
+day and on demand on `ubuntu-26.04` (the arm runners of GitHub have no KVM), and need KVM, podman, passt with vhost-user, cloud-hypervisor (which `task`
 installs with aqua), mkdosfs, mcopy,
 xorrisofs, mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later (for
 `mkfs.ext4 -d`), `ip` of iproute2, `unshare` of util-linux, `timeout` and `sha256sum` of coreutils,

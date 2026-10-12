@@ -1,0 +1,28 @@
+---
+# The end-to-end tests take long, so they run every day and on demand rather than on each push.
+name: E2E
+on:
+  schedule:
+  # 03:00 in Japan.
+  - cron: '0 18 * * *'
+  workflow_dispatch:
+permissions: {}
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Build
+    permissions:
+      contents: read
+    uses: $/.github/workflows/wc-build.yml
+  e2e:
+    needs:
+    - build
+    name: E2E
+    permissions:
+      contents: read
+    uses: $/.github/workflows/wc-e2e.yml

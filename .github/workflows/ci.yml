@@ -63,13 +63,6 @@ jobs:
     permissions:
       contents: read
     uses: $/.github/workflows/wc-build.yml
-  e2e:
-    needs:
-    - build
-    name: E2E
-    permissions:
-      contents: read
-    uses: $/.github/workflows/wc-e2e.yml
   sign:
     needs:
     - build
@@ -101,7 +94,6 @@ jobs:
     - audit
     - doc
     - build
-    - e2e
     - sign
     - release
     name: CI
