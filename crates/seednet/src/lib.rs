@@ -5,6 +5,8 @@
 //! [`convert`] parses the config into [`Network`]s, and [`render()`] turns those into files.
 //! Neither does any I/O.
 
+pub mod checksum;
+pub mod cmdline;
 pub mod ip;
 mod lenient;
 pub mod network;

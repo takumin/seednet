@@ -17,7 +17,11 @@ repository = "https://github.com/takumin/seednet"
 anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"
+base64 = "0.23.1"
+flate2 = "1.1.10"
+md-5 = "0.11.0"
 sha1 = "0.11.0"
+sha2 = "0.11.0"
 
 # The binary goes into an initrd, so keep it small.
 [profile.release]
