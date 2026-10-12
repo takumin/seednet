@@ -3,7 +3,8 @@
 //!
 //! It is read as cloud-init converts it to version 2 for netplan, with two exceptions: the name
 //! servers of `type: nameserver` with `interface`, and the routes of `type: route`, which that
-//! conversion drops, apply as the format says.
+//! conversion drops, apply as the format says. So `optional`, which it drops too, is skipped, and a
+//! subnet metric of 0 is none, as it takes a value that is not true for none.
 
 use std::collections::BTreeMap;
 
@@ -48,8 +49,6 @@ struct Physical {
     mtu: Option<u32>,
     #[serde(default, rename = "accept-ra", deserialize_with = "lenient::opt_bool")]
     accept_ra: Option<bool>,
-    #[serde(default, deserialize_with = "lenient::opt_bool")]
-    optional: Option<bool>,
     #[serde(default)]
     subnets: Vec<Subnet>,
     #[serde(flatten)]
@@ -65,8 +64,6 @@ struct Controller {
     mtu: Option<u32>,
     #[serde(default, rename = "accept-ra", deserialize_with = "lenient::opt_bool")]
     accept_ra: Option<bool>,
-    #[serde(default, deserialize_with = "lenient::opt_bool")]
-    optional: Option<bool>,
     #[serde(
         default,
         alias = "bridge_interfaces",
@@ -89,8 +86,6 @@ struct Vlan {
     mtu: Option<u32>,
     #[serde(default, rename = "accept-ra", deserialize_with = "lenient::opt_bool")]
     accept_ra: Option<bool>,
-    #[serde(default, deserialize_with = "lenient::opt_bool")]
-    optional: Option<bool>,
     vlan_link: Option<String>,
     #[serde(default, deserialize_with = "lenient::opt_u32")]
     vlan_id: Option<u32>,
@@ -189,7 +184,6 @@ pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>>
                         set_mac_address: controller.mac_address,
                         mtu: controller.mtu,
                         accept_ra: controller.accept_ra,
-                        optional: controller.optional.unwrap_or(false),
                         ..network
                     },
                     controller.subnets,
@@ -216,7 +210,6 @@ pub fn convert(value: Value, warnings: &mut Vec<String>) -> Result<Vec<Network>>
                     set_mac_address: vlan.mac_address,
                     mtu: vlan.mtu,
                     accept_ra: vlan.accept_ra,
-                    optional: vlan.optional.unwrap_or(false),
                     ..Default::default()
                 };
                 networks.push(with_subnets(network, vlan.subnets, warnings)?);
@@ -284,7 +277,6 @@ fn physical_network(physical: Physical, warnings: &mut Vec<String>) -> Result<Ne
         set_name,
         mtu: physical.mtu,
         accept_ra: physical.accept_ra,
-        optional: physical.optional.unwrap_or(false),
         ..Default::default()
     };
 
@@ -378,12 +370,14 @@ struct Metrics {
 
 fn add_subnet(
     network: &mut Network,
-    subnet: Subnet,
+    mut subnet: Subnet,
     metrics: &mut Metrics,
     warnings: &mut Vec<String>,
 ) -> Result<()> {
     let what = format!("a {} subnet of {}", subnet.kind, network.id);
     warn_unknown(subnet.rest, &what, warnings);
+    // cloud-init drops what is not true, as a metric of 0.
+    subnet.metric = subnet.metric.filter(|&metric| metric != 0);
     let kind = subnet.kind.as_str();
     match kind {
         "dhcp" | "dhcp4" => {

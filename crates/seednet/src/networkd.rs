@@ -202,8 +202,9 @@ fn network_file(network: &Network, networks: &[Network]) -> String {
             let _ = writeln!(out, "VLAN={}", vlan.id);
         }
     }
-    // A bond or bridge may be up before its ports have a carrier.
-    if network.is_virtual() && controller.is_none() {
+    // A created interface may be up before its ports have a carrier, as netplan has it, even as a
+    // port itself.
+    if network.is_virtual() {
         out.push_str("ConfigureWithoutCarrier=yes\n");
     }
 

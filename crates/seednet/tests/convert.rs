@@ -514,14 +514,15 @@ fn v1_reads_as_cloud_init_converts_it_for_netplan() {
     assert_eq!(
         conversion.warnings,
         [
+            "skipping the unsupported key optional of eth0",
             "skipping dns_nameservers of a dhcp subnet of eth0, which only a static one takes",
             "skipping the mtu of eth0, since its IPv4 subnet has another",
         ]
     );
     let files = render(config);
 
-    // ipv6_slaac is dhcp6, the metric of the DHCP subnets is their route metric, and the gateway
-    // out of the subnet is on the link.
+    // ipv6_slaac is dhcp6, the metric of the DHCP subnets is their route metric, the gateway out of
+    // the subnet is on the link, and optional goes, as cloud-init does not pass it to netplan.
     assert_eq!(files[0].0, "10-seednet-eth0.network");
     assert_eq!(
         files[0].1,
@@ -532,7 +533,6 @@ Name=eth0
 
 [Link]
 MTUBytes=9000
-RequiredForOnline=no
 
 [Network]
 DHCP=yes
@@ -877,6 +877,28 @@ bonds:
 }
 
 #[test]
+fn v1_takes_a_subnet_metric_of_0_for_none() {
+    let files = render(
+        "version: 1
+config:
+    -   type: physical
+        name: eth0
+        subnets:
+            - {type: dhcp, metric: 0}
+            -   type: static
+                address: 192.0.2.10/24
+                gateway: 192.0.2.1
+                metric: 0
+                routes: [{network: 10.0.0.0/8, gateway: 192.0.2.2, metric: 0}]
+",
+    );
+    assert!(files[0].1.contains("RouteMetric=100\n"), "{}", files[0].1);
+    assert!(files[0].1.contains("Gateway=192.0.2.1\n\n"), "{}", files[0].1);
+    // A route keeps its metric of 0.
+    assert!(files[0].1.contains("Gateway=192.0.2.2\nMetric=0\n"), "{}", files[0].1);
+}
+
+#[test]
 fn v1_and_v2_convert_alike() {
     assert_eq!(
         convert(include_str!("fixtures/v1-bond-bridge-vlan.yaml")).unwrap(),
@@ -1006,6 +1028,7 @@ Name=vlan10
 [Network]
 Bridge=br0
 LinkLocalAddressing=no
+ConfigureWithoutCarrier=yes
 
 [Bridge]
 Cost=50
@@ -1225,6 +1248,10 @@ fn network_manager_warns_about_a_primary_without_a_name() {
 
 #[test]
 fn bad_references_fail() {
+    // VLAN 0, which netplan takes, is in range.
+    assert!(
+        convert("version: 2\nethernets: {eth0: {}}\nvlans: {v: {id: 0, link: eth0}}\n").is_ok()
+    );
     for config in [
         // A port that is not there.
         "version: 2\nbonds: {bond0: {interfaces: [eth9]}}\n",

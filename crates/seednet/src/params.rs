@@ -9,11 +9,11 @@ use yaml_serde::Value;
 use crate::ip::parse_addr;
 use crate::network::{Bond, Bridge};
 
-/// Checks a VLAN ID, which is 1 to 4094.
+/// Checks a VLAN ID, which is 0 to 4094, as netplan takes it.
 pub fn vlan_id(id: u32) -> Result<u16> {
     u16::try_from(id)
         .ok()
-        .filter(|id| (1..4095).contains(id))
+        .filter(|id| *id < 4095)
         .with_context(|| format!("VLAN ID out of range: {id}"))
 }
 

@@ -195,7 +195,7 @@ which keeps applying since the files of seednet are named by the ID in the confi
 | `name` with `mac_address` | `set-name` | `.link` `Name=` | `.link` `Name=` |
 | `mac_address` of a bond, bridge or VLAN | `macaddress` | `MACAddress=`, but `permanent`, `random`, `stable` and `preserve` skipped | `cloned-mac-address=` |
 | `mtu`, static subnet `mtu` | `mtu` | `MTUBytes=` | `mtu=` |
-| `optional` | `optional` | `RequiredForOnline=no` | skipped |
+| | `optional` | `RequiredForOnline=no` | skipped |
 | subnet `dhcp`, `dhcp4`, `dhcp6`, `ipv6_slaac`, `ipv6_dhcpv6-stateless`, `ipv6_dhcpv6-stateful` | `dhcp4`, `dhcp6` | `DHCP=` | `method=auto` |
 | `accept-ra` | `accept-ra` | `IPv6AcceptRA=` | `method=auto` |
 | | `link-local` | `LinkLocalAddressing=` | `method=link-local`, or `link-local=` of IPv4 with other addresses |
@@ -219,7 +219,9 @@ Version 1 is read as cloud-init converts it to version 2 for netplan:
 - The `metric` of a DHCP subnet is the `route-metric` of DHCP, the same for DHCPv4 and DHCPv6.
 - The name servers of `type: nameserver` without `interface` go to the interfaces with static
   addresses and no name servers or search domains of their own.
-- `type: loopback` is ignored.
+- `type: loopback` is ignored, and so is `optional`, which that conversion drops, with a warning.
+- A `metric` of 0 of a subnet is none, as cloud-init drops the values that are not true; that of a
+  route stays.
 - A route to `default` is to `0.0.0.0/0` or `::/0`, by the family of its gateway.
 
 Unlike that conversion, which drops them, the name servers of `type: nameserver` with `interface`
@@ -234,7 +236,8 @@ spellings (`bond-miimon`, `bridge_fd` and so on). `mode`, `lacp-rate`, `transmit
 `ad-select` and `fail-over-mac-policy` take only the names that both systemd-networkd and
 NetworkManager take, such as `802.3ad`, and a name that the config gives an interface must be one
 that the kernel takes: 1 to 15 bytes, without `/`, `:` or white space. A bridge with `parameters`,
-even empty ones, has STP on unless they say `stp: false`, as netplan has it.
+even empty ones, has STP on unless they say `stp: false`, as netplan has it, and a VLAN ID is 0 to
+4094.
 
 The config fails, as netplan does, on an address without its prefix length, a route without `to`
 or to `default` without `via`, whose family it would not know, and a MAC address that is none. A
