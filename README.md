@@ -32,9 +32,14 @@ The config comes from the first of these that is there:
 | The `network-config` on the CIDATA disk | yes | yes |
 
 Without any, it writes nothing and leaves the network alone, as it does with a config that
-configures no interface, such as an empty or disabled (`config: disabled`) one. When the rootfs is on the network (NFS,
-CIFS, NBD or iSCSI), the rootfs keeps the network of the initrd and ignores
-`/etc/seednet/network-config`, since changing the network could cut the rootfs off.
+configures no interface, such as an empty or disabled (`config: disabled`) one.
+
+When the rootfs or `/usr` is on the network, the rootfs keeps the network of the initrd and ignores
+`/etc/seednet/network-config`, since changing the network could cut the rootfs off. That is a
+network file system (NFS, CIFS, CephFS, GlusterFS, SSHFS, Lustre or AFS), or a disk over the
+network (NBD, iSCSI, NVMe over Fabrics, Ceph RBD, ATA over Ethernet or DRBD), followed through
+partitions, device mapper, loop devices and overlays, as for a live image read over NFS. A ZFS pool
+is not followed, nor a disk over FCoE.
 
 It keeps the config it used in `/run/seednet/network-config`, readable by root only, where it came
 from in `/run/seednet/source`, and the backend in `/run/seednet/backend`. In the rootfs, it creates
