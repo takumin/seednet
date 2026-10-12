@@ -25,7 +25,12 @@ const INITRD_UNITS: &[&str] = &[
     "usr/lib/systemd/system/NetworkManager-initrd.service",
 ];
 
-const ENABLED_UNIT: &str = "etc/systemd/system/multi-user.target.wants/NetworkManager.service";
+/// Where systemd looks for the units that are enabled: by the admin, and by the vendor.
+const UNIT_DIRS: &[&str] = &[
+    "etc/systemd/system",
+    "usr/lib/systemd/system",
+    "lib/systemd/system",
+];
 
 /// The DHCP connection of nm-initrd-generator, for when nothing says how the network is.
 const INITRD_DEFAULT_CONNECTION: &str =
@@ -43,9 +48,21 @@ pub fn in_initrd(sysroot: &Path) -> bool {
     INITRD_UNITS.iter().any(|unit| sysroot.join(unit).exists())
 }
 
-/// Whether NetworkManager brings up the network of the rootfs.
+/// Whether NetworkManager brings up the network of the rootfs: whether a target wants it, by the
+/// admin or by the vendor, and it is not masked.
 pub fn enabled(sysroot: &Path) -> bool {
-    sysroot.join(ENABLED_UNIT).exists()
+    let unit = "NetworkManager.service";
+    let masked = fs::read_link(sysroot.join(UNIT_DIRS[0]).join(unit))
+        .is_ok_and(|target| target == Path::new("/dev/null"));
+    !masked
+        && UNIT_DIRS.iter().any(|dir| {
+            fs::read_dir(sysroot.join(dir)).is_ok_and(|entries| {
+                entries.flatten().any(|entry| {
+                    entry.file_name().to_string_lossy().ends_with(".wants")
+                        && entry.path().join(unit).exists()
+                })
+            })
+        })
 }
 
 /// The UUIDs of the profiles that NetworkManager keeps in /etc, with the file of each: in
@@ -165,6 +182,26 @@ fn remove_file(path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tells_whether_network_manager_is_enabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let sysroot = dir.path();
+        assert!(!enabled(sysroot));
+
+        let vendor = sysroot.join("usr/lib/systemd/system/graphical.target.wants");
+        fs::create_dir_all(&vendor).unwrap();
+        fs::write(vendor.join("NetworkManager.service"), "").unwrap();
+        assert!(enabled(sysroot));
+
+        fs::create_dir_all(sysroot.join("etc/systemd/system")).unwrap();
+        std::os::unix::fs::symlink(
+            "/dev/null",
+            sysroot.join("etc/systemd/system/NetworkManager.service"),
+        )
+        .unwrap();
+        assert!(!enabled(sysroot));
+    }
 
     #[test]
     fn keeps_the_configuration_of_the_initrd_under_a_network_rootfs() {
