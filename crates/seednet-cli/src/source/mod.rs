@@ -98,14 +98,10 @@ pub fn find(
         Stage::Initrd => {
             if let Some(template) = &params.url_template {
                 let timeout = params.url_timeout.unwrap_or(DEFAULT_URL_TIMEOUT);
-                let seed = fetch::fetch(
-                    template,
-                    params.checksum.as_ref(),
-                    timeout,
-                    sysroot,
-                    options.ca_file.as_deref(),
-                    || names::dhcp(sysroot, options.backend),
-                )?;
+                let seed =
+                    fetch::fetch(template, timeout, sysroot, options.ca_file.as_deref(), || {
+                        names::dhcp(sysroot, options.backend)
+                    })?;
                 info(&format!("fetched the NoCloud seed from {}", seed.url));
                 output.save_seed(&seed.files)?;
                 // The seed is the one for this boot, so the CIDATA disk is not looked at.

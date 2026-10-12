@@ -18,7 +18,7 @@
 #   cmdline  As neednet, without a CIDATA disk: the config is in seednet.network-config, gzipped and
 #            in URL-safe base64.
 #   url      No CIDATA disk: the initrd fetches the NoCloud seed of seednet.url over DHCP, by the
-#            host name that DHCP gives, with seednet.checksum, and cloud-init takes the seed.
+#            host name that DHCP gives, and cloud-init takes the seed.
 #   live     No rootfs disk: the initrd brings up the network from the CIDATA disk, without DHCP, to
 #            fetch a live rootfs over HTTP, as root=live:http://... says.
 #   edit     As disk, then the network is changed with the usual tool, and a second boot checks
@@ -27,12 +27,12 @@
 #   https    As url and live at once, by a host name over HTTPS: the initrd fetches seednet.url
 #            with the name server of DHCP, by the FQDN that DHCP gives, then the live rootfs with
 #            the one of the config.
-#   badsum   As url, with a seednet.checksum that the config does not have: the boot must stop in
+#   noseed   As url, with a seednet.url where there is no seed: the boot must stop in
 #            the initrd, saying so.
 #
 # It runs on an x86_64 or aarch64 host with KVM, with guests of its architecture. It needs podman,
 # passt with vhost-user, cloud-hypervisor, mkdosfs, mcopy, xorrisofs, mksquashfs 4.6 or later,
-# mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout, sha256sum, openssl and
+# mkfs.ext4 and debugfs of e2fsprogs 1.43 or later, ip, unshare, timeout, openssl and
 # python3, and the release build of seednet for <arch>-unknown-linux-musl. The work goes in
 # target/e2e.
 #
@@ -46,7 +46,7 @@ set -eu
 distro=${1:?distro: debian, ubuntu, fedora, el9 or el10}
 initrd=${2:?initrd: networkd or nm}
 backend=${3:?rootfs: networkd or nm}
-scenario=${4:?scenario: disk, neednet, cmdline, url, live, edit, https or badsum}
+scenario=${4:?scenario: disk, neednet, cmdline, url, live, edit, https or noseed}
 case $distro in debian | ubuntu | fedora | el9 | el10) ;; *) echo "unknown distro: $distro" >&2 && exit 2 ;; esac
 arch=$(uname -m)
 case $arch in
@@ -58,7 +58,7 @@ for b in "$initrd" "$backend"; do
 	case $b in networkd | nm) ;; *) echo "unknown backend: $b" >&2 && exit 2 ;; esac
 done
 case $scenario in
-	disk | neednet | cmdline | url | live | edit | https | badsum) ;;
+	disk | neednet | cmdline | url | live | edit | https | noseed) ;;
 	*) echo "unknown scenario: $scenario" >&2 && exit 2 ;;
 esac
 case $distro,$initrd,$backend in
@@ -196,20 +196,19 @@ case $scenario in
 		cmdline="$cmdline root=/dev/vda rw rd.neednet=1 seednet.network-config=$config"
 		disks=
 		;;
-	url | https | badsum)
-		sum=$(sha256sum "$repo/e2e/network-config" | cut -d' ' -f1)
-		# The checksum of something else.
-		[ "$scenario" != badsum ] || sum=$(echo | sha256sum | cut -d' ' -f1)
+	url | https | noseed)
 		seed='{hostname}'
 		[ "$scenario" != https ] || seed='{fqdn}'
+		# A directory that is not there.
+		[ "$scenario" != noseed ] || seed=none
 		# ds-identify looks for the seed before seednet hands it to cloud-init.
-		cmdline="$cmdline seednet.url=$server/seed/$seed/ seednet.checksum=sha256:$sum ds=nocloud"
+		cmdline="$cmdline seednet.url=$server/seed/$seed/ ds=nocloud"
 		disks=
 		dhcp=
 		;;
 esac
 case $scenario in
-	url | badsum) cmdline="$cmdline root=/dev/vda rw" ;;
+	url | noseed) cmdline="$cmdline root=/dev/vda rw" ;;
 	live | https)
 		cmdline="$cmdline root=live:$server/rootfs.squashfs rd.live.overlay.overlayfs=1"
 		memory=3G
@@ -231,8 +230,9 @@ if [ "$scenario" != live ] && [ "$scenario" != https ]; then
 	disks="path=run.img,image_type=raw $disks"
 fi
 
-# What seednet says of a config that does not have the checksum.
-badsum="is not the expected one"
+# What seednet says as it fails on a seed that is not there, not as it tries again while the network
+# comes up.
+noseed="Error: failed to fetch $server/seed/none/meta-data"
 
 # Boots the guest once, with e2e.phase=$1 when it is not empty, and checks its report.
 boot()
@@ -284,10 +284,10 @@ boot()
 		--serial tty --console off > "$console" 2>&1 &
 	vm=$!
 	boot_pids="$boot_pids $vm"
-	if [ "$scenario" = badsum ]; then
+	if [ "$scenario" = noseed ]; then
 		# The guest stops in the emergency shell, which it does not leave by itself.
 		n=0
-		while kill -0 "$vm" 2> /dev/null && ! grep -q "$badsum" "$console" && [ "$n" -lt 120 ]; do
+		while kill -0 "$vm" 2> /dev/null && ! grep -q "$noseed" "$console" && [ "$n" -lt 120 ]; do
 			sleep 1
 			n=$((n + 1))
 		done
@@ -304,11 +304,11 @@ boot()
 	boot_pids=
 
 	sed -n '/=== E2E-REPORT/,/E2E-RESULT/p' "$console" | tr -d '\r'
-	if [ "$scenario" = badsum ]; then
-		if grep -q "$badsum" "$console" && ! grep -q 'E2E-RESULT' "$console"; then
+	if [ "$scenario" = noseed ]; then
+		if grep -q "$noseed" "$console" && ! grep -q 'E2E-RESULT' "$console"; then
 			echo "PASS: $distro $initrd $backend $scenario"
 		else
-			echo "FAIL: $distro $initrd $backend $scenario: the boot did not stop on the checksum (see $work/$console)"
+			echo "FAIL: $distro $initrd $backend $scenario: the boot did not stop on the missing seed (see $work/$console)"
 			exit 1
 		fi
 	elif grep -q 'E2E-RESULT: PASS' "$console"; then

@@ -234,14 +234,10 @@ fn network_root_keeps_the_network_of_the_initrd() {
     assert!(sysroot.path("run/seednet/network-rootfs").exists());
 }
 
-/// The sha256 of OTHER_CONFIG.
-const OTHER_SHA256: &str = "c751d7ae9e2b331c3e9054a150335f2088ef2d3d144cae5ae64dee984e4c531c";
-
 #[test]
 fn initrd_fetches_the_url_before_cidata() {
     let url = serve(OTHER_CONFIG);
-    let sysroot =
-        Sysroot::new(&format!("seednet.url={url} seednet.checksum=sha256:{OTHER_SHA256}"));
+    let sysroot = Sysroot::new(&format!("seednet.url={url}"));
     sysroot.write("cidata/network-config", CONFIG);
 
     let output = sysroot.apply("initrd");
@@ -255,18 +251,6 @@ fn initrd_fetches_the_url_before_cidata() {
     assert_eq!(sysroot.read("run/seednet/seed/network-config"), OTHER_CONFIG);
     assert_eq!(mode(&sysroot.path("run/seednet/seed/user-data")), 0o600);
     assert!(!sysroot.path("run/seednet/seed/vendor-data").exists());
-}
-
-#[test]
-fn a_checksum_mismatch_fails() {
-    let url = serve(CONFIG);
-    let sysroot =
-        Sysroot::new(&format!("seednet.url={url} seednet.checksum=sha256:{OTHER_SHA256}"));
-
-    let output = sysroot.apply("initrd");
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("checksum mismatch"));
-    assert!(sysroot.networks().is_empty());
 }
 
 #[test]
@@ -333,13 +317,6 @@ fn a_seed_without_network_config_leaves_the_network_alone() {
     assert!(!sysroot.path("run/seednet/source").exists());
     assert_eq!(sysroot.read("run/seednet/seed/meta-data"), META_DATA);
     assert!(!sysroot.path("run/seednet/seed/network-config").exists());
-
-    // Nor is there a network-config to match a checksum.
-    let sysroot =
-        Sysroot::new(&format!("seednet.url={url}/seed/ seednet.checksum=sha256:{OTHER_SHA256}"));
-    let output = sysroot.apply("initrd");
-    assert!(!output.status.success());
-    assert!(stderr(&output).contains("has no network-config"));
 }
 
 #[test]

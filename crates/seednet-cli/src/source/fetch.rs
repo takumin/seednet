@@ -7,7 +7,6 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use seednet::checksum::Checksum;
 use seednet::cmdline::MAX_CONFIG_SIZE;
 use seednet::template::{Names, Template, Var};
 use ureq::tls::{PemItem, RootCerts, TlsConfig, TlsProvider};
@@ -63,10 +62,9 @@ impl Seed {
 
 /// Fetches the seed, trying again until `timeout` runs out while the failure may be the network
 /// still coming up, or DHCP not having given the names of the template yet. Any other failure,
-/// such as a bad certificate or a checksum mismatch, fails at once.
+/// such as a bad certificate or a seed without meta-data, fails at once.
 pub fn fetch(
     template: &Template,
-    checksum: Option<&Checksum>,
     timeout: Duration,
     sysroot: &Path,
     ca_file: Option<&Path>,
@@ -106,22 +104,7 @@ pub fn fetch(
             files.push((name, body));
         }
     }
-    let seed = Seed { url: shown, files };
-
-    if let Some(checksum) = checksum {
-        let config = seed
-            .files
-            .iter()
-            .find(|(name, _)| *name == "network-config")
-            .with_context(|| {
-                format!("seednet.checksum is given, but {} has no network-config", seed.url)
-            })?;
-        checksum.verify(&config.1).with_context(|| {
-            format!("the network-config of {} is not the expected one", seed.url)
-        })?;
-    }
-
-    Ok(seed)
+    Ok(Seed { url: shown, files })
 }
 
 /// The variables that have no value, for a message.

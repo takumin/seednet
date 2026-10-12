@@ -7,7 +7,6 @@ use base64::Engine as _;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
-use crate::checksum::Checksum;
 use crate::template::Template;
 
 /// The most a network-config may take, decoded or fetched, so that a bad one cannot fill the
@@ -23,8 +22,6 @@ pub struct Params {
     pub url: Option<String>,
     /// `seednet.url=` as a template, read only to fetch.
     pub url_template: Option<Template>,
-    /// `seednet.checksum=`: what the fetched network-config must hash to.
-    pub checksum: Option<Checksum>,
     /// `seednet.url-timeout=`: how long to keep trying to fetch the config, in seconds.
     pub url_timeout: Option<Duration>,
     /// `rd.seednet.timeout=`: how long to wait for the CIDATA disk, in seconds.
@@ -68,14 +65,15 @@ impl Params {
                 }
                 params.url_template = Some(Template::parse(url).context("invalid seednet.url")?);
             }
-            params.checksum = get("seednet.checksum")
-                .map(|value| value.parse().context("invalid seednet.checksum"))
-                .transpose()?;
             params.url_timeout = get("seednet.url-timeout")
                 .map(|value| seconds(value).context("invalid seednet.url-timeout"))
                 .transpose()?;
-            if params.checksum.is_some() && params.url.is_none() {
-                bail!("seednet.checksum is given without seednet.url");
+            // A config that the boot takes for checked must not go unchecked.
+            if get("seednet.checksum").is_some() {
+                bail!(
+                    "seednet.checksum is no longer supported: fetch the seed over https to keep it \
+                    from being tampered with"
+                );
             }
         }
 
@@ -184,20 +182,15 @@ mod tests {
 
     #[test]
     fn parses_the_seednet_params() {
-        let empty_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
         let params = Params::parse(
-            &format!(
-                "ro seednet.url=http://a/1/ seednet.url=http://a/{{hostname}}/ \
-            seednet.checksum=sha256:{empty_sha256} seednet.url-timeout=30 rd.seednet.timeout=3 \
-            seednet.network-config=dmVyc2lvbjogMgo\n",
-            ),
+            "ro seednet.url=http://a/1/ seednet.url=http://a/{hostname}/ \
+            seednet.url-timeout=30 rd.seednet.timeout=3 seednet.network-config=dmVyc2lvbjogMgo\n",
             true,
         )
         .unwrap();
 
         assert_eq!(params.url.as_deref(), Some("http://a/{hostname}/"));
         assert_eq!(params.url_template.unwrap().vars(), [crate::template::Var::Hostname]);
-        assert!(params.checksum.is_some());
         assert_eq!(params.url_timeout, Some(Duration::from_secs(30)));
         assert_eq!(params.cidata_timeout, Some(Duration::from_secs(3)));
         assert_eq!(params.network_config.as_deref(), Some("version: 2\n"));
@@ -210,16 +203,17 @@ mod tests {
     fn rejects_bad_params() {
         assert!(Params::parse("seednet.network-config=!!!", true).is_err());
         assert!(Params::parse("seednet.url-timeout=soon", true).is_err());
-        assert!(Params::parse("seednet.checksum=sha256:00", true).is_err());
         assert!(Params::parse("seednet.url=http://a/{host}/", true).is_err());
         assert!(Params::parse("seednet.url=http://a/network-config", true).is_err());
-        let md5 = "seednet.checksum=md5:d41d8cd98f00b204e9800998ecf8427e";
-        assert!(Params::parse(md5, true).is_err());
+        // A checksum is not taken, rather than not checked.
+        let checksum = "seednet.url=http://a/ seednet.checksum=sha256:00";
+        let error = Params::parse(checksum, true).unwrap_err();
+        assert!(format!("{error:#}").contains("no longer supported"));
 
         // What is overridden, or what the rootfs does not fetch with, need not be valid.
         assert!(Params::parse("seednet.url-timeout=soon seednet.url-timeout=5", true).is_ok());
         assert!(Params::parse("seednet.url-timeout=soon", false).is_ok());
-        assert!(Params::parse(md5, false).is_ok());
+        assert!(Params::parse(checksum, false).is_ok());
         assert!(Params::parse("seednet.url=http://a/{host}/", false).is_ok());
     }
 

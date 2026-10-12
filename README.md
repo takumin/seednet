@@ -85,10 +85,10 @@ cloud-init, it leaves the seed in `/run`.
   network-config of the seed is the one of this boot, and a seed without one leaves the network
   alone, as cloud-init does. A fetch that does not succeed fails, and so fails the boot. An `https`
   URL follows no redirect to `http`. An empty one undoes one before it. It may have the names that
-  DHCP gives the host in it, as below.
-- `seednet.checksum=<ALGORITHM>:<HEX>`: what the network-config of the seed must hash to, with
-  `md5`, `sha1`, `sha256` or `sha512`. Prefer `sha256` or `sha512`. The other files of the seed are
-  not checked, so prefer an `https` URL for a `user-data` that must not be tampered with.
+  DHCP gives the host in it, as below. Nothing checks the seed but the certificate of an `https`
+  URL, so fetch it over `https` to keep the seed, whose `user-data` runs as root, from being
+  tampered with. `seednet.checksum=`, which an earlier version took, now fails, rather than leave
+  unchecked a seed that the command line says is checked.
 - `seednet.url-timeout=<SECONDS>`: how long to keep trying to fetch the seed while the network
   comes up and DHCP gives the names of the URL (default: 60). A failure that trying again would not
   fix, such as a bad certificate or a `403`, fails at once.
@@ -435,17 +435,17 @@ labels of their files, which `e2e/disks.sh` puts on the disks, since `podman exp
 | `disk` | The rootfs on a disk, and the rootfs reads the CIDATA disk. |
 | `neednet` | As `disk`, with `rd.neednet=1`: the initrd brings up the network and the rootfs keeps it. The config is of version 1, on a CIDATA disk of iso9660 labelled `cidata`, as `cloud-localds` makes it. |
 | `cmdline` | As `neednet`, without a CIDATA disk: the config is in `seednet.network-config`, gzipped and in URL-safe base64. |
-| `url` | No CIDATA disk: the initrd fetches the NoCloud seed of `seednet.url` over DHCP, by the `{hostname}` that DHCP gives, and checks `seednet.checksum`, and cloud-init takes the seed with `ds=nocloud`. |
+| `url` | No CIDATA disk: the initrd fetches the NoCloud seed of `seednet.url` over DHCP, by the `{hostname}` that DHCP gives, and cloud-init takes the seed with `ds=nocloud`. |
 | `live` | No DHCP and no rootfs disk: the initrd brings up the network from the CIDATA disk to fetch the rootfs, as `root=live:http://...` says. |
 | `edit` | As `disk`, then `nmcli` changes a connection of seednet as the GUI does, or `networkctl edit` adds a drop-in to one file of seednet and copies another to `/etc`, and a second boot checks that the changes stayed. |
 | `https` | As `url` and `live` at once, by a host name over HTTPS: the initrd fetches `seednet.url` with the name server of DHCP, by the `{fqdn}` that DHCP gives, then the live rootfs with the one of the config. The image trusts a CA of the tests, and the name server of the tests runs with passt in a network namespace of its own. |
-| `badsum` | As `url`, with a `seednet.checksum` that the config does not have: the boot must stop in the emergency shell of the initrd, saying why. |
+| `noseed` | As `url`, with a `seednet.url` where there is no seed: the boot must stop in the emergency shell of the initrd, saying why. |
 
 They boot guests of the architecture of the host, x86_64 or aarch64, as the E2E workflow does every
 day and on demand on `ubuntu-26.04` (the arm runners of GitHub have no KVM), and need KVM, podman, passt with vhost-user, cloud-hypervisor (which `task`
 installs with aqua), mkdosfs, mcopy,
 xorrisofs, mksquashfs 4.6 or later, mkfs.ext4 and debugfs of e2fsprogs 1.43 or later (for
-`mkfs.ext4 -d`), `ip` of iproute2, `unshare` of util-linux, `timeout` and `sha256sum` of coreutils,
+`mkfs.ext4 -d`), `ip` of iproute2, `unshare` of util-linux, `timeout` of coreutils,
 openssl and python3, and work in `target/e2e`.
 
 The workspace has two crates: `crates/seednet`, a library that parses and converts the config

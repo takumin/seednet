@@ -28,9 +28,7 @@ serde = { version = "1.0.229", features = ["derive"] }
 yaml_serde = "0.10.7"
 base64 = "0.23.1"
 flate2 = "1.1.10"
-md-5 = "0.11.0"
 sha1 = "0.11.0"
-sha2 = "0.11.0"
 # ring rather than aws-lc-rs, which needs cmake and a C toolchain for every target. The roots come
 # from the system CA bundle only, so no webpki-roots.
 ureq = { version = "3.4.2", default-features = false, features = [

@@ -11,7 +11,7 @@
 set -eu
 
 repo=$(cd "$(dirname "$0")/.." && pwd)
-scenarios="disk neednet cmdline url live https edit badsum"
+scenarios="disk neednet cmdline url live https edit noseed"
 
 # One guest, as xargs runs it.
 if [ "${1:-}" = --guest ]; then
