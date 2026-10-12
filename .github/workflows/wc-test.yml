@@ -45,16 +45,16 @@ jobs:
       if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: sccache-test-${{ hashFiles('**/Cargo.lock') }}
+        key: sccache-test-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |-
-          sccache-test-
+          sccache-test-${{ runner.arch }}-
         path: ~/.cache/sccache
     - name: Restore rustup toolchain cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: rustup-${{ hashFiles('rust-toolchain.toml') }}
+        key: rustup-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml') }}
         restore-keys: |-
-          rustup-
+          rustup-${{ runner.arch }}-
         path: ~/.rustup/
     - name: Setup sccache
       run: task tool:aqua:tag:sccache

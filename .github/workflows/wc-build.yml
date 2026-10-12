@@ -75,27 +75,29 @@ jobs:
           deps-
         path: ~/.cargo/registry/
     - name: Restore setup build aqua cache
+      id: setup-build-cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: setup-build-aqua-${{ hashFiles('.aqua/**/*.yaml', '.aqua/**/*.yml') }}
+        key: setup-build-aqua-${{ runner.arch }}-${{ hashFiles('.aqua/**/*.yaml', '.aqua/**/*.yml') }}
         restore-keys: |-
-          setup-build-aqua-
+          setup-build-aqua-${{ runner.arch }}-
         path: ~/.local/share/aquaproj-aqua/
     - name: Restore sccache (deps)
       id: sccache
       if: ${{ !startsWith(github.ref, 'refs/tags/') }}
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: sccache-build-${{ matrix.target }}-${{ matrix.profile }}-${{ hashFiles('**/Cargo.lock') }}
+        key: sccache-build-${{ matrix.target }}-${{ matrix.profile }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |-
-          sccache-build-${{ matrix.target }}-${{ matrix.profile }}-
+          sccache-build-${{ matrix.target }}-${{ matrix.profile }}-${{ runner.arch }}-
         path: ~/.cache/sccache
     - name: Restore rustup toolchain cache
+      id: rustup-toolchain-cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: rustup-${{ hashFiles('rust-toolchain.toml') }}
+        key: rustup-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml') }}
         restore-keys: |-
-          rustup-
+          rustup-${{ runner.arch }}-
         path: ~/.rustup/
     - name: Setup build
       run: |-
@@ -136,6 +138,20 @@ jobs:
       with:
         name: seednet-${{ matrix.profile }}-${{ matrix.target }}
         path: dist/
+    # Fetch saves these for the x86_64 runners; a runner of another architecture saves its own, from
+    # one job of its matrix.
+    - name: Save setup build aqua cache
+      if: github.ref == 'refs/heads/main' && matrix.profile == 'debug' && steps.setup-build-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.setup-build-cache.outputs.cache-primary-key }}
+        path: ~/.local/share/aquaproj-aqua/
+    - name: Save rustup toolchain cache
+      if: github.ref == 'refs/heads/main' && matrix.profile == 'debug' && steps.rustup-toolchain-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        key: ${{ steps.rustup-toolchain-cache.outputs.cache-primary-key }}
+        path: ~/.rustup/
     - name: Save sccache (deps)
       if: github.ref == 'refs/heads/main' && steps.sccache.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

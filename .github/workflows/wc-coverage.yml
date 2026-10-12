@@ -39,9 +39,9 @@ jobs:
     - name: Restore rustup toolchain cache
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        key: rustup-${{ hashFiles('rust-toolchain.toml') }}
+        key: rustup-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml') }}
         restore-keys: |-
-          rustup-
+          rustup-${{ runner.arch }}-
         path: ~/.rustup/
     - name: Setup coverage
       run: task setup:coverage
