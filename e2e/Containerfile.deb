@@ -2,7 +2,7 @@
 # with systemd-networkd or NetworkManager, and systemd-networkd with netplan or NetworkManager.
 ARG DISTRO=debian
 
-FROM docker.io/library/debian:trixie@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5 AS debian
+FROM docker.io/library/debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308 AS debian
 FROM docker.io/library/ubuntu:26.04@sha256:c098726dd9b9733f3e885f8de0ef375206a311b0a317eadc40d347b1115fb944 AS ubuntu
 
 # hadolint ignore=DL3006
