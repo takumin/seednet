@@ -3,7 +3,7 @@
 # Enterprise Linux has NetworkManager only, as systemd-networkd is not in its repositories.
 ARG DISTRO=fedora
 
-FROM registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454 AS fedora
+FROM registry.fedoraproject.org/fedora:44@sha256:6ad1739ac6fb30f72ecc7b62a7ca94871d1cab215e4f5174113941047e0b4ed4 AS fedora
 FROM quay.io/rockylinux/rockylinux:9@sha256:8101994123cf3d0a8fee517bee7f39e555c7d92bd2d9eb3303cc988a0eeed00f AS el9
 FROM quay.io/almalinuxorg/almalinux:10@sha256:112a396798d93f15b66f19786d553ed3f37d4503db71a92a871748bc731c797c AS el10
 
