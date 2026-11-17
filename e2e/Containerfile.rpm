@@ -5,7 +5,7 @@ ARG DISTRO=fedora
 
 FROM registry.fedoraproject.org/fedora:44@sha256:86d20cf3b872310bafeb1e09152ffa95d0d76d79f08ec6be5f1765366bfd0adf AS fedora
 FROM quay.io/rockylinux/rockylinux:9@sha256:bb5755f96bec05ff26165e779ec843d7167544be9e50770508f307019a6d05c4 AS el9
-FROM quay.io/almalinuxorg/almalinux:10@sha256:b98e425405322fb266d3ccd6bbd811ed6dd1e251598de8ee07efd1bd3e7b8943 AS el10
+FROM quay.io/almalinuxorg/almalinux:10@sha256:498b0b31dab82c3be22ac50efb8bf865adce85576495da20de8cedc48b29eec6 AS el10
 
 # hadolint ignore=DL3006
 FROM ${DISTRO}
