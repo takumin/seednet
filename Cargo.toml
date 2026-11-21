@@ -7,7 +7,7 @@ version = "0.2.0"
 authors = ["Takumi Takahashi <takumiiinn@gmail.com>"]
 license = "Apache-2.0"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 # Distributed as static binaries on GitHub Releases, for an initrd.
 publish = false
 homepage = "https://github.com/takumin/seednet"
